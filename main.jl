@@ -25,7 +25,7 @@ Keyword arguments
 ─────────────────
   n_x, n_y        city grid size in neighbourhoods       (default 10 × 10)
   k               neighbourhood side length in buildings  (default 8)
-  n_agents        number of agents                        (default 10_000)
+  n_agents        initial number of agents                (default 0)
   seed            RNG seed                                (default 42)
   ws_port         WebSocket port Blender connects to      (default 8765)
 
@@ -36,7 +36,7 @@ function init_model(;
     n_x     ::Int = 10,
     n_y     ::Int = 10,
     k       ::Int = 8,
-    n_agents::Int = 10_000,
+    n_agents::Int = 0,
     seed    ::Int = 42,
     ws_port ::Int = 8765,
     kwargs...
@@ -67,10 +67,16 @@ end
 # ============================================================
 
 """
-    run_steps!(city, vis, rng; n_steps, n_search, step_delay)
+    run_steps!(city, vis, rng; n_steps, n_search, step_delay, agents_inflow, blender_update_every)
 
-Run `n_steps` steps of the model.  After each step the diff is pushed to Blender
-and a one-line summary is printed.
+Run `n_steps` steps of the model and print a one-line summary after each step.
+If `require_authorization=true` (default), Julia prompts for approval before
+running the step batch.
+If `agents_inflow > 0`, that many new agents are appended before each step.
+Only those newly added agents run property search in that step.
+Blender updates are throttled by `blender_update_every`:
+  - `0`  → send once at the end of the batch
+  - `k>0` → send every `k` steps (and once at the end if needed)
 
 Can be called repeatedly from the REPL for interactive exploration:
 
@@ -83,31 +89,62 @@ function run_steps!(
     city      ::City,
     vis       ::Visualizer,
     rng       ::AbstractRNG;
-    n_steps   ::Int     = 50,
+    n_steps   ::Int     = 1000,
     n_search  ::Int     = 5,
-    step_delay::Float64 = 0.0,
+    agents_inflow::Int  = 100,
+    blender_update_every::Int = 0,
+    step_delay::Float64 = 0.1,
+    require_authorization::Bool = true,
 )
+    if require_authorization
+        print("Authorize run of $(n_steps) step(s)? [y/N]: ")
+        ans = lowercase(strip(readline()))
+        if !(ans in ("y", "yes"))
+            println("Run cancelled.")
+            return
+        end
+    end
+
+    last_sent_step = 0
     for t in 1:n_steps
+        n_before = length(city.agents)
+        agents_inflow > 0 && add_agents!(city, agents_inflow; rng=rng)
+        n_after = length(city.agents)
+        new_ids = if n_after > n_before
+            (n_before + 1):n_after
+        else
+            1:0
+        end
+
         t0 = time()
-        step!(city; n_search=n_search, rng=rng)
+        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids)
         elapsed = time() - t0
 
-        send_step_diff!(vis, city)
+        if blender_update_every > 0 && (t % blender_update_every == 0)
+            send_step_diff!(vis, city)
+            last_sent_step = t
+        end
         _print_stats(t, city, elapsed)
 
         step_delay > 0.0 && sleep(step_delay)
+    end
+
+    if blender_update_every == 0 || last_sent_step != n_steps
+        send_step_diff!(vis, city)
     end
 end
 
 function _print_stats(t::Int, city::City, elapsed::Float64)
     n_dw     = length(city.dwellings)
+    n_agents = length(city.agents)
     n_housed = count(a -> a.dwelling_id != 0, city.agents)
+    n_vacant = count(d -> d.occupant_id == 0, city.dwellings)
     occupied = filter(b -> height(b) > 0, city.buildings)
     h_mean   = isempty(occupied) ? 0.0 : mean(height.(occupied))
     h_max    = isempty(occupied) ? 0   : maximum(height.(occupied))
-    n_empty  = length(city.buildings) - length(occupied)
+    n_empty_buildings = length(city.buildings) - length(occupied)
 
-    @printf "step %4d | housed %6d | dwellings %6d | mean h %5.2f | max h %3d | empty %5d | %5.2fs\n" t n_housed n_dw h_mean h_max n_empty elapsed
+    @printf "step %4d | agents %6d | housed %6d | dwellings %6d | vacant %5d | mean h %5.2f | max h %3d | empty_bld %5d | %5.2fs\n" t n_agents n_housed n_dw n_vacant h_mean h_max n_empty_buildings elapsed
 end
 
 # ============================================================
@@ -123,22 +160,25 @@ further interactive use.
 
 Quick start:
     include("main.jl")
-    city, vis, rng = run!(n_agents=5_000, n_steps=20, step_delay=0.5)
+    city, vis, rng = run!(n_agents=100, n_steps=10, step_delay=0.5)
 """
 function run!(;
     n_x       ::Int     = 10,
     n_y       ::Int     = 10,
     k         ::Int     = 8,
-    n_agents  ::Int     = 10_000,
-    n_steps   ::Int     = 50,
+    n_agents  ::Int     = 0,
+    n_steps   ::Int     = 1000,
     n_search  ::Int     = 5,
-    step_delay::Float64 = 0.0,
+    agents_inflow::Int  = 100,
+    blender_update_every::Int = 0,
+    step_delay::Float64 = 0.1,
+    require_authorization::Bool = true,
     seed      ::Int     = 42,
     ws_port   ::Int     = 8765,
     kwargs...
 )
     city, vis, rng = init_model(; n_x, n_y, k, n_agents, seed, ws_port, kwargs...)
-    run_steps!(city, vis, rng; n_steps, n_search, step_delay)
+    run_steps!(city, vis, rng; n_steps, n_search, agents_inflow, blender_update_every, step_delay, require_authorization)
     return city, vis, rng
 end
 

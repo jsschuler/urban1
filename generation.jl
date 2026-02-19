@@ -119,3 +119,56 @@ function generate_agents!(
         )
     end
 end
+
+"""
+    add_agents!(city, n_new; rng, kwargs...)
+
+Append `n_new` additional agents to the existing city population.
+Agent IDs continue from the current maximum ID.
+"""
+function add_agents!(
+    city::City,
+    n_new::Int;
+    rng::AbstractRNG           = Random.default_rng(),
+    # Preference means and spreads (truncated normal, floor at 0.5)
+    pref_density_μ::Float32    = 3.0f0,
+    pref_density_σ::Float32    = 2.0f0,
+    pref_height_μ::Float32     = 3.0f0,
+    pref_height_σ::Float32     = 2.0f0,
+    # Marginal sensitivity parameters (% deviation scale; log-normal so always > 0)
+    σ_neighborhood_μ::Float32  = 0.5f0,
+    σ_neighborhood_σ::Float32  = 0.3f0,
+    σ_building_μ::Float32      = 0.5f0,
+    σ_building_σ::Float32      = 0.3f0,
+    # Proximity decay scale in building units (log-normal; median ≈ exp(2.5) ≈ 12)
+    proximity_scale_μ::Float32 = 2.5f0,
+    proximity_scale_σ::Float32 = 0.5f0,
+    # Frank copula θ > 0 (log-normal; median ≈ exp(0.7) ≈ 2)
+    copula_θ_μ::Float32        = 0.7f0,
+    copula_θ_σ::Float32        = 0.4f0,
+    # Budget (log-normal)
+    budget_μ::Float32          = 1.0f0,
+    budget_σ::Float32          = 0.5f0,
+)
+    n_new <= 0 && return
+
+    n_buildings = length(city.buildings)
+    weights     = Float64[job_weight(b) for b in city.buildings]
+    job_bids    = sample(rng, Int32(1):Int32(n_buildings), Weights(weights), n_new)
+
+    id0 = length(city.agents)
+    for i in 1:n_new
+        push!(city.agents, Agent(
+            Int32(id0 + i),
+            Int32(0),  # unhoused
+            job_bids[i],
+            exp(budget_μ          + budget_σ          * randn(rng, Float32)),
+            max(0.5f0, pref_density_μ + pref_density_σ * randn(rng, Float32)),
+            max(0.5f0, pref_height_μ  + pref_height_σ  * randn(rng, Float32)),
+            exp(σ_neighborhood_μ  + σ_neighborhood_σ  * randn(rng, Float32)),
+            exp(σ_building_μ      + σ_building_σ      * randn(rng, Float32)),
+            exp(proximity_scale_μ + proximity_scale_σ * randn(rng, Float32)),
+            exp(copula_θ_μ        + copula_θ_σ        * randn(rng, Float32)),
+        ))
+    end
+end

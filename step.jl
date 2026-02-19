@@ -20,12 +20,12 @@ end
 # Job assignment
 # ============================================================
 
-"""Reassign every agent a job; probability proportional to job_weight (height + 1)."""
-function assign_jobs!(city::City, rng::AbstractRNG)
+"""Assign jobs to selected agents; probability proportional to job_weight (height + 1)."""
+function assign_jobs!(city::City, rng::AbstractRNG, agent_ids = eachindex(city.agents))
     n_b = Int32(length(city.buildings))
     w   = Weights(Float64[job_weight(b) for b in city.buildings])
-    for agent in city.agents
-        agent.job_building_id = sample(rng, Int32(1):n_b, w)
+    for i in agent_ids
+        city.agents[i].job_building_id = sample(rng, Int32(1):n_b, w)
     end
 end
 
@@ -86,21 +86,30 @@ function build_and_move_in!(agent::Agent, b::Building, city::City)
     d     = Dwelling(did, b.id, floor, b.name, agent.id)
     push!(b.dwellings, d)
     push!(city.dwellings, d)
+
+    if agent.dwelling_id != 0
+        old = city.dwellings[agent.dwelling_id]
+        old.occupant_id = 0
+    end
     agent.dwelling_id = did
 end
 
-function move_into_vacant!(agent::Agent, d::Dwelling)
+function move_into_vacant!(agent::Agent, d::Dwelling, city::City)
+    if agent.dwelling_id != 0 && agent.dwelling_id != d.id
+        old = city.dwellings[agent.dwelling_id]
+        old.occupant_id = 0
+    end
     d.occupant_id = agent.id
     agent.dwelling_id = d.id
 end
 
-"""Move agent into `d`, evict current occupant, return the evicted agent."""
-function displace_and_move_in!(agent::Agent, d::Dwelling, city::City)::Agent
-    evicted           = city.agents[d.occupant_id]
-    evicted.dwelling_id = Int32(0)
-    d.occupant_id     = agent.id
-    agent.dwelling_id = d.id
-    return evicted
+"""Sample existing dwellings (vacant and occupied) uniformly at random."""
+function search_dwellings(city::City, n::Int, rng::AbstractRNG)::Vector{Dwelling}
+    n_dw = length(city.dwellings)
+    n_dw == 0 && return Dwelling[]
+    m = min(max(1, 2n), n_dw)
+    idx = sample(rng, 1:n_dw, m; replace=false)
+    return city.dwellings[idx]
 end
 
 # ============================================================
@@ -112,84 +121,59 @@ end
 
 One model step:
 
-1. Reassign all jobs (probability ∝ job_weight = height + 1).
-2. Vacate all dwellings — every agent re-enters the housing market.
-3. Snapshot neighbourhood densities (used for search weights and utility ranking).
-4. Shuffle agents into a housing queue and process until all are housed:
-     a. Search 2*n_search candidate buildings (alternating density / height+proximity).
-     b. Rank unique candidates by full utility (descending).
-     c. Walk the ranked list:
-          - Vacant dwelling found        → move in, done.
-          - Weakest occupant has lower budget → displace, add evicted to queue, done.
-          - Otherwise                    → skip to next candidate.
-     d. If list exhausted with no housing → build a new dwelling in the
-        top-utility candidate building.
+1. Assign jobs for the selected agent subset (typically newly added agents).
+2. Snapshot neighbourhood densities (used for search weights and utility ranking).
+3. Shuffle selected agents and process each one:
+     a. Sample existing dwellings (vacant and occupied) at random.
+     b. Among sampled dwellings, pick the highest-utility vacant one (if any).
+     c. Otherwise build a new dwelling in the top-utility sampled building.
 """
 function step!(
     city     ::City;
     n_search ::Int          = 5,
     rng      ::AbstractRNG  = Random.default_rng(),
+    agent_ids              = eachindex(city.agents),
 )
-    # 1. Reassign jobs
-    assign_jobs!(city, rng)
+    isempty(agent_ids) && return
 
-    # 2. Vacate all existing dwellings
-    for a in city.agents; a.dwelling_id  = Int32(0); end
-    for d in city.dwellings; d.occupant_id = Int32(0); end
+    # 1. Assign jobs for selected agents only
+    assign_jobs!(city, rng, agent_ids)
 
-    # 3. Snapshot neighbourhood densities at step start
+    # 2. Snapshot neighbourhood densities at step start
     nd_cache = compute_nd_cache(city)
 
-    # 4. Build housing queue
-    queue    = shuffle(rng, copy(city.agents))
-    in_queue = Set{Int32}(a.id for a in queue)
-
-    while !isempty(queue)
-        agent = popfirst!(queue)
-        delete!(in_queue, agent.id)
-
+    # 3. Process selected agents once in random order
+    selected = [city.agents[i] for i in agent_ids]
+    for agent in shuffle(rng, selected)
         jpos = city.buildings[agent.job_building_id].pos
 
-        # --- search ---
+        # --- sampled building fallback for potential new construction ---
         cand_bids   = search_candidates(agent, city, nd_cache, n_search, rng)
         unique_bids = unique(cand_bids)
         sort!(unique_bids;
               by  = bid -> agent_utility(agent, city.buildings[bid], nd_cache, jpos),
               rev = true)
 
-        # --- try to claim housing ---
-        housed = false
-        for bid in unique_bids
-            b = city.buildings[bid]
+        # --- sample existing dwellings and take best sampled vacancy ---
+        sampled = search_dwellings(city, n_search, rng)
+        best_d = nothing
+        best_u = -Inf32
 
-            # Vacant dwelling?
-            vi = findfirst(d -> d.occupant_id == 0, b.dwellings)
-            if vi !== nothing
-                move_into_vacant!(agent, b.dwellings[vi])
-                housed = true
-                break
-            end
-
-            # Displace the weakest occupant?
-            if !isempty(b.dwellings)
-                wi      = argmin(i -> city.agents[b.dwellings[i].occupant_id].budget,
-                                 eachindex(b.dwellings))
-                weakest = city.agents[b.dwellings[wi].occupant_id]
-                if agent.budget > weakest.budget
-                    evicted = displace_and_move_in!(agent, b.dwellings[wi], city)
-                    if evicted.id ∉ in_queue
-                        push!(queue, evicted)
-                        push!(in_queue, evicted.id)
-                    end
-                    housed = true
-                    break
+        for d in sampled
+            if d.occupant_id == 0 || d.occupant_id == agent.id
+                b = city.buildings[d.building_id]
+                u = agent_utility(agent, b, nd_cache, jpos)
+                if u > best_u
+                    best_u = u
+                    best_d = d
                 end
             end
         end
 
-        # --- last resort: build in top-utility candidate ---
-        if !housed
+        if best_d === nothing
             build_and_move_in!(agent, city.buildings[first(unique_bids)], city)
+        else
+            move_into_vacant!(agent, best_d, city)
         end
     end
 end

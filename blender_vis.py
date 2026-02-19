@@ -20,6 +20,7 @@ import json
 import math
 import queue
 import threading
+import traceback
 
 try:
     import websocket
@@ -28,12 +29,14 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "websocket-client"])
     import websocket
 
+websocket.enableTrace(False)
+
 # ============================================================
 # Constants
 # ============================================================
 
 _GREY            = (0.75, 0.75, 0.75)   # default dwelling colour
-_LANDSCAPE_COLOR = (0.03, 0.14, 0.03)   # dark green ground plane
+_LANDSCAPE_COLOR = (0.04, 0.24, 0.06)   # dark green ground plane
 
 # ============================================================
 # Global state  (module-level; survives operator re-runs)
@@ -56,8 +59,22 @@ _scheme: dict = {
     "log_scale":  False,
 }
 
-# dwelling_id → {"obj": Object, "budget": float, "x": int, "y": int, "floor": int}
+# Neighbourhood side length (k) reported by Julia.
+_neighborhood_k: int = 8
+# City dimensions in neighbourhood units; used to centre geometry around origin.
+_city_nx: int = 0
+_city_ny: int = 0
+_center_x: float = 0.0
+_center_y: float = 0.0
+
+# Instancing object/material name prefixes
+_POINTS_OBJ_PREFIX = "NIMBY_DwellingPoints_"
+_PROTO_OBJ_PREFIX = "NIMBY_DwellingProto_"
+_MAT_PREFIX = "NIMBY_Dwelling_Mat_"
+
+# dwelling_id → {"budget": float, "x": int, "y": int, "floor": int, "nh_id": int}
 _dwellings: dict = {}
+_group_point_coords: dict = {}
 
 # ============================================================
 # Colour helpers
@@ -81,7 +98,7 @@ def _scheme_value(d_id: int) -> float:
         return float(sum(1 for e in _dwellings.values() if e["x"] == x and e["y"] == y))
     elif attr == "density":
         # Mean building height inside the k×k neighbourhood block
-        x, y, k = entry["x"], entry["y"], 8
+        x, y, k = entry["x"], entry["y"], max(1, int(_neighborhood_k))
         ox, oy = (x // k) * k, (y // k) * k
         heights = {}
         for e in _dwellings.values():
@@ -120,7 +137,7 @@ def _collection(name: str = "Dwellings") -> bpy.types.Collection:
 
 
 def _make_material(name: str, rgb: tuple) -> bpy.types.Material:
-    mat = bpy.data.materials.new(name=name)
+    mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
@@ -129,11 +146,92 @@ def _make_material(name: str, rgb: tuple) -> bpy.types.Material:
     return mat
 
 
-def _set_color(obj: bpy.types.Object, rgb: tuple):
-    if obj.data.materials:
-        bsdf = obj.data.materials[0].node_tree.nodes.get("Principled BSDF")
+def _set_material_color(mat: bpy.types.Material, rgb: tuple):
+    if mat and mat.node_tree:
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf:
             bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+
+
+def _neighborhood_id(x: int, y: int) -> int:
+    k = max(1, int(_neighborhood_k))
+    nx = max(1, int(_city_nx))
+    return (y // k) * nx + (x // k)
+
+
+def _neighborhood_grey(nh_id: int) -> tuple:
+    # 7 grey levels, repeated across neighborhoods.
+    level = 0.35 + 0.08 * (nh_id % 7)
+    return (level, level, level)
+
+
+def _create_cube_mesh(name: str) -> bpy.types.Mesh:
+    verts = [
+        (-0.45, -0.45, -0.5), (0.45, -0.45, -0.5),
+        (0.45, 0.45, -0.5), (-0.45, 0.45, -0.5),
+        (-0.45, -0.45, 0.5), (0.45, -0.45, 0.5),
+        (0.45, 0.45, 0.5), (-0.45, 0.45, 0.5),
+    ]
+    faces = [
+        (0, 1, 2, 3), (4, 5, 6, 7),
+        (0, 1, 5, 4), (2, 3, 7, 6),
+        (0, 3, 7, 4), (1, 2, 6, 5),
+    ]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    return mesh
+
+
+def _points_obj_name(nh_id: int) -> str:
+    return f"{_POINTS_OBJ_PREFIX}{nh_id}"
+
+
+def _proto_obj_name(nh_id: int) -> str:
+    return f"{_PROTO_OBJ_PREFIX}{nh_id}"
+
+
+def _mat_name(nh_id: int) -> str:
+    return f"{_MAT_PREFIX}{nh_id}"
+
+
+def _ensure_instancer(nh_id: int) -> bpy.types.Object:
+    col = _collection()
+    points = bpy.data.objects.get(_points_obj_name(nh_id))
+    proto = bpy.data.objects.get(_proto_obj_name(nh_id))
+
+    if points is None:
+        pmesh = bpy.data.meshes.new(f"{_points_obj_name(nh_id)}_Mesh")
+        points = bpy.data.objects.new(_points_obj_name(nh_id), pmesh)
+        col.objects.link(points)
+        points.instance_type = "VERTS"
+        points.show_instancer_for_viewport = False
+        points.show_instancer_for_render = False
+
+    if proto is None:
+        pmesh = _create_cube_mesh(f"{_proto_obj_name(nh_id)}_Mesh")
+        proto = bpy.data.objects.new(_proto_obj_name(nh_id), pmesh)
+        col.objects.link(proto)
+        proto.parent = points
+        proto.location = (0.0, 0.0, 0.0)
+        proto.data.materials.clear()
+        proto.data.materials.append(_make_material(_mat_name(nh_id), _neighborhood_grey(nh_id)))
+
+    if proto.parent != points:
+        proto.parent = points
+    return points
+
+
+def _append_point_coords(nh_id: int, coords: list):
+    if not coords:
+        return
+    points = _ensure_instancer(nh_id)
+    mesh = points.data
+    start = len(mesh.vertices)
+    mesh.vertices.add(len(coords))
+    for i, co in enumerate(coords):
+        mesh.vertices[start + i].co = co
+    mesh.update()
 
 
 # ============================================================
@@ -143,7 +241,7 @@ def _set_color(obj: bpy.types.Object, rgb: tuple):
 def create_landscape(size: float = 500.0):
     """
     Place a large flat plane at z = -0.05 so dwellings sit on top.
-    The plane is offset so its corner aligns with the building grid origin (0, 0).
+    The plane is centred on the Blender world origin (0, 0).
     Replaces any existing landscape.
     """
     existing = bpy.data.objects.get("NIMBY_Landscape")
@@ -154,18 +252,21 @@ def create_landscape(size: float = 500.0):
 
     bpy.ops.mesh.primitive_plane_add(
         size=size,
-        location=(size / 2.0, size / 2.0, -0.05),
+        location=(0.0, 0.0, -0.05),
     )
     obj = bpy.context.active_object
     obj.name = "NIMBY_Landscape"
 
     mat = bpy.data.materials.new(name="NIMBY_Landscape_Mat")
     mat.use_nodes = True
+    mat.diffuse_color = (*_LANDSCAPE_COLOR, 1.0)
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = (*_LANDSCAPE_COLOR, 1.0)
         bsdf.inputs["Roughness"].default_value  = 1.0
-        bsdf.inputs["Specular"].default_value   = 0.0
+        spec_input = bsdf.inputs.get("Specular") or bsdf.inputs.get("Specular IOR Level")
+        if spec_input is not None:
+            spec_input.default_value = 0.0
 
     obj.data.materials.clear()
     obj.data.materials.append(mat)
@@ -176,30 +277,22 @@ def create_landscape(size: float = 500.0):
 # Dwellings
 # ============================================================
 
-def create_dwelling(d_id: int, x: int, y: int, floor: int, budget: float):
-    s       = 0.45          # half-width; leaves a small gap between cubes
-    z0, z1  = float(floor - 1), float(floor)
-    verts = [
-        (x - s, y - s, z0), (x + s, y - s, z0),
-        (x + s, y + s, z0), (x - s, y + s, z0),
-        (x - s, y - s, z1), (x + s, y - s, z1),
-        (x + s, y + s, z1), (x - s, y + s, z1),
-    ]
-    faces = [
-        (0, 1, 2, 3), (4, 5, 6, 7),
-        (0, 1, 5, 4), (2, 3, 7, 6),
-        (0, 3, 7, 4), (1, 2, 6, 5),
-    ]
-    mesh = bpy.data.meshes.new(f"d_{d_id}")
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-
-    obj = bpy.data.objects.new(f"d_{d_id}", mesh)
-    _collection().objects.link(obj)
-
-    # Store entry before calling _resolve_color so _scheme_value can find it
-    _dwellings[d_id] = {"obj": obj, "budget": budget, "x": x, "y": y, "floor": floor}
-    obj.data.materials.append(_make_material(f"mat_d_{d_id}", _resolve_color(d_id)))
+def create_dwellings_batch(items: list):
+    buckets = {}
+    for d in items:
+        d_id = d["id"]
+        if d_id in _dwellings:
+            continue
+        x, y, floor, budget = d["x"], d["y"], d["floor"], d["budget"]
+        nh_id = _neighborhood_id(x, y)
+        co = (float(x) - _center_x, float(y) - _center_y, float(floor) - 0.5)
+        _group_point_coords.setdefault(nh_id, []).append(co)
+        _dwellings[d_id] = {
+            "budget": budget, "x": x, "y": y, "floor": floor, "nh_id": nh_id,
+        }
+        buckets.setdefault(nh_id, []).append(co)
+    for nh_id, coords in buckets.items():
+        _append_point_coords(nh_id, coords)
 
 
 def update_budget(d_id: int, budget: float):
@@ -207,26 +300,56 @@ def update_budget(d_id: int, budget: float):
     if entry is None:
         return
     entry["budget"] = budget
-    # Only repaint immediately when budget is the active scheme attribute
-    if _scheme_enabled and _scheme["attribute"] == "budget":
-        _set_color(entry["obj"], _map_to_color(budget))
 
 
 def recolor_all():
-    """Recompute and apply colours for every dwelling using the current scheme."""
-    for d_id, entry in _dwellings.items():
-        _set_color(entry["obj"], _resolve_color(d_id))
+    """Recompute and apply neighbourhood material colours."""
+    mats = [m for m in bpy.data.materials if m.name.startswith(_MAT_PREFIX)]
+    if not mats:
+        return
+    if _scheme_enabled and _scheme["attribute"] == "budget" and _dwellings:
+        mean_budget = sum(e["budget"] for e in _dwellings.values()) / len(_dwellings)
+        rgb = _map_to_color(mean_budget)
+        for mat in mats:
+            _set_material_color(mat, rgb)
+        return
+    for mat in mats:
+        try:
+            nh_id = int(mat.name.split(_MAT_PREFIX, 1)[1])
+        except (ValueError, IndexError):
+            nh_id = 0
+        _set_material_color(mat, _neighborhood_grey(nh_id))
 
 # ============================================================
 # Message dispatch
 # ============================================================
 
 def _handle(msg: dict):
+    global _neighborhood_k, _city_nx, _city_ny, _center_x, _center_y  # noqa: PLW0603
     t = msg.get("type")
 
-    if t == "new_dwellings":
-        for d in msg["dwellings"]:
-            create_dwelling(d["id"], d["x"], d["y"], d["floor"], d["budget"])
+    if t == "city_config":
+        k = msg.get("k")
+        n_x = msg.get("n_x")
+        n_y = msg.get("n_y")
+        if isinstance(k, int) and k > 0:
+            _neighborhood_k = k
+            if isinstance(n_x, int) and isinstance(n_y, int) and n_x > 0 and n_y > 0:
+                _city_nx = n_x
+                _city_ny = n_y
+                total_x = n_x * k
+                total_y = n_y * k
+                _center_x = (total_x - 1) / 2.0
+                _center_y = (total_y - 1) / 2.0
+            else:
+                # Fallback when full dimensions are unavailable.
+                _center_x = (k - 1) / 2.0
+                _center_y = (k - 1) / 2.0
+            if _scheme_enabled and _scheme.get("attribute") == "density":
+                recolor_all()
+
+    elif t == "new_dwellings":
+        create_dwellings_batch(msg["dwellings"])
 
     elif t == "budget_updates":
         for u in msg["updates"]:
@@ -257,30 +380,46 @@ def _on_message(_ws, raw):
         _msg_queue.put(json.loads(raw))
     except Exception as e:
         print(f"[NIMBY] parse error: {e}")
+        print(traceback.format_exc())
 
 def _on_error(_ws, error):
-    print(f"[NIMBY] error: {error}")
+    print(f"[NIMBY] error ({type(error).__name__}): {error!r}")
 
 def _on_close(_ws, _code, _reason):
-    print(f"[NIMBY] disconnected (code={_code})")
+    print(f"[NIMBY] disconnected (code={_code}, reason={_reason!r})")
 
 
 def _start_ws(url: str):
     global _ws, _ws_thread
+    if _ws is not None:
+        print("[NIMBY] existing websocket detected; closing before reconnect")
+        _stop_ws()
     _ws = websocket.WebSocketApp(
         url,
         on_open=_on_open, on_message=_on_message,
         on_error=_on_error, on_close=_on_close,
     )
-    _ws_thread = threading.Thread(target=_ws.run_forever, daemon=True)
+    def _runner():
+        try:
+            # Some servers/proxies can trip ping/pong timeout logic even when
+            # the socket is otherwise healthy.
+            _ws.run_forever()
+        except Exception as e:
+            print(f"[NIMBY] run_forever crashed: {e!r}")
+            print(traceback.format_exc())
+    _ws_thread = threading.Thread(target=_runner, daemon=True)
     _ws_thread.start()
+    print(f"[NIMBY] websocket thread started (alive={_ws_thread.is_alive()})")
 
 
 def _stop_ws():
-    global _ws
+    global _ws, _ws_thread
     if _ws:
         _ws.close()
         _ws = None
+    if _ws_thread and _ws_thread.is_alive():
+        _ws_thread.join(timeout=1.0)
+    _ws_thread = None
 
 # ============================================================
 # Operators
@@ -309,8 +448,7 @@ class NIMBY_OT_Setup(bpy.types.Operator):
         sun.data.angle   = math.radians(5)
 
         # Camera looking straight down from above the city centre
-        half = props.landscape_size / 2.0
-        bpy.ops.object.camera_add(location=(half, half, props.landscape_size * 0.8))
+        bpy.ops.object.camera_add(location=(0.0, 0.0, props.landscape_size * 0.8))
         cam = bpy.context.active_object
         cam.name = "NIMBY_Camera"
         cam.rotation_euler = (0, 0, 0)   # top-down
@@ -331,10 +469,15 @@ class NIMBY_OT_Start(bpy.types.Operator):
             changed = 0
             while changed < 500:
                 try:
-                    _handle(_msg_queue.get_nowait())
-                    changed += 1
+                    msg = _msg_queue.get_nowait()
                 except queue.Empty:
                     break
+                try:
+                    _handle(msg)
+                    changed += 1
+                except Exception as e:
+                    print(f"[NIMBY] handle error: {e!r} | msg={msg}")
+                    print(traceback.format_exc())
             if changed:
                 for area in context.screen.areas:
                     if area.type == "VIEW_3D":
@@ -342,7 +485,12 @@ class NIMBY_OT_Start(bpy.types.Operator):
         return {"PASS_THROUGH"}
 
     def invoke(self, context, _event):
-        _start_ws(context.scene.nimby_vis.ws_url)
+        if _ws_thread is not None and _ws_thread.is_alive():
+            self.report({"WARNING"}, "WebSocket is already running")
+            return {"CANCELLED"}
+        url = context.scene.nimby_vis.ws_url
+        print(f"[NIMBY] starting websocket to {url}")
+        _start_ws(url)
         wm = context.window_manager
         self._timer = wm.event_timer_add(
             context.scene.nimby_vis.poll_interval, window=context.window
@@ -368,9 +516,11 @@ class NIMBY_OT_Clear(bpy.types.Operator):
     bl_label       = "Clear Dwellings"
     bl_description = "Remove all dwelling cubes (landscape is kept)"
     def execute(self, _context):
-        for entry in _dwellings.values():
-            bpy.data.objects.remove(entry["obj"], do_unlink=True)
         _dwellings.clear()
+        _group_point_coords.clear()
+        for obj in bpy.data.objects:
+            if obj.name.startswith(_POINTS_OBJ_PREFIX) and obj.type == "MESH":
+                obj.data.clear_geometry()
         return {"FINISHED"}
 
 

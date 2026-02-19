@@ -1,6 +1,8 @@
 using HTTP
 using JSON3
 
+const _WS_CHUNK = 200
+
 # ============================================================
 # Color scheme
 # ============================================================
@@ -67,11 +69,14 @@ function listen!(vis::Visualizer, city_ref::Ref{Union{Nothing,City}};
         city = city_ref[]
         isnothing(city) || full_sync!(vis, city)
         try
-            while isopen(ws)
-                HTTP.WebSockets.receive(ws)   # drain pings / any client messages
+            # We currently only push server->client updates. Keeping the handler
+            # alive with a passive loop avoids premature closes caused by receive
+            # loop edge-cases when the client is mostly send-idle.
+            while !HTTP.WebSockets.isclosed(ws)
+                sleep(0.1)
             end
-        catch
-            # connection closed normally or abruptly
+        catch e
+            @warn "WebSocket handler loop error" exception=(e, catch_backtrace())
         finally
             vis.ws[] = nothing
             @info "Blender disconnected"
@@ -87,6 +92,17 @@ function _send!(vis::Visualizer, payload::AbstractDict)
         HTTP.WebSockets.send(ws, JSON3.write(payload))
     catch e
         @warn "Visualizer send error: $e"
+    end
+end
+
+function _send_chunked!(vis::Visualizer, msg_type::String, key::String, items)
+    n = length(items)
+    n == 0 && return
+    i = 1
+    while i <= n
+        j = min(i + _WS_CHUNK - 1, n)
+        _send!(vis, Dict("type" => msg_type, key => items[i:j]))
+        i = j + 1
     end
 end
 
@@ -117,6 +133,12 @@ function full_sync!(vis::Visualizer, city::City)
     empty!(vis.sent_ids)
     empty!(vis.last_budgets)
 
+    _send!(vis, Dict(
+        "type" => "city_config",
+        "k"    => Int(city.k),
+        "n_x"  => Int(city.n_x),
+        "n_y"  => Int(city.n_y),
+    ))
     _send!(vis, Dict("type" => "color_scheme", "scheme" => _scheme_dict(vis.scheme)))
 
     isempty(city.dwellings) && return
@@ -159,8 +181,8 @@ function send_step_diff!(vis::Visualizer, city::City)
         end
     end
 
-    isempty(new_payload)    || _send!(vis, Dict("type" => "new_dwellings",  "dwellings" => new_payload))
-    isempty(update_payload) || _send!(vis, Dict("type" => "budget_updates", "updates"   => update_payload))
+    _send_chunked!(vis, "new_dwellings", "dwellings", new_payload)
+    _send_chunked!(vis, "budget_updates", "updates", update_payload)
 end
 
 """
