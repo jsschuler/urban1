@@ -80,6 +80,10 @@ function generate_agents!(
     # Preference means and spreads (truncated normal, floor at 0.5)
     pref_density_μ::Float32    = 3.0f0,
     pref_density_σ::Float32    = 2.0f0,
+    pref_nh_max_height_μ::Float32 = 6.0f0,
+    pref_nh_max_height_σ::Float32 = 2.0f0,
+    pref_nh_min_height_μ::Float32 = 1.0f0,
+    pref_nh_min_height_σ::Float32 = 1.0f0,
     pref_height_μ::Float32     = 3.0f0,
     pref_height_σ::Float32     = 2.0f0,
     # Marginal sensitivity parameters (% deviation scale; log-normal so always > 0)
@@ -111,6 +115,8 @@ function generate_agents!(
             job_bids[i],
             exp(budget_μ          + budget_σ          * randn(rng, Float32)),
             max(0.5f0, pref_density_μ + pref_density_σ * randn(rng, Float32)),
+            max(1.0f0, pref_nh_max_height_μ + pref_nh_max_height_σ * randn(rng, Float32)),
+            max(0.0f0, pref_nh_min_height_μ + pref_nh_min_height_σ * randn(rng, Float32)),
             max(0.5f0, pref_height_μ  + pref_height_σ  * randn(rng, Float32)),
             exp(σ_neighborhood_μ  + σ_neighborhood_σ  * randn(rng, Float32)),
             exp(σ_building_μ      + σ_building_σ      * randn(rng, Float32)),
@@ -133,6 +139,10 @@ function add_agents!(
     # Preference means and spreads (truncated normal, floor at 0.5)
     pref_density_μ::Float32    = 3.0f0,
     pref_density_σ::Float32    = 2.0f0,
+    pref_nh_max_height_μ::Float32 = 6.0f0,
+    pref_nh_max_height_σ::Float32 = 2.0f0,
+    pref_nh_min_height_μ::Float32 = 1.0f0,
+    pref_nh_min_height_σ::Float32 = 1.0f0,
     pref_height_μ::Float32     = 3.0f0,
     pref_height_σ::Float32     = 2.0f0,
     # Marginal sensitivity parameters (% deviation scale; log-normal so always > 0)
@@ -164,6 +174,8 @@ function add_agents!(
             job_bids[i],
             exp(budget_μ          + budget_σ          * randn(rng, Float32)),
             max(0.5f0, pref_density_μ + pref_density_σ * randn(rng, Float32)),
+            max(1.0f0, pref_nh_max_height_μ + pref_nh_max_height_σ * randn(rng, Float32)),
+            max(0.0f0, pref_nh_min_height_μ + pref_nh_min_height_σ * randn(rng, Float32)),
             max(0.5f0, pref_height_μ  + pref_height_σ  * randn(rng, Float32)),
             exp(σ_neighborhood_μ  + σ_neighborhood_σ  * randn(rng, Float32)),
             exp(σ_building_μ      + σ_building_σ      * randn(rng, Float32)),

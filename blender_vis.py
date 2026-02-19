@@ -295,6 +295,15 @@ def create_dwellings_batch(items: list):
         _append_point_coords(nh_id, coords)
 
 
+def reset_dwellings():
+    _dwellings.clear()
+    _group_point_coords.clear()
+    for obj in bpy.data.objects:
+        if obj.name.startswith(_POINTS_OBJ_PREFIX) and obj.type == "MESH":
+            obj.data.clear_geometry()
+    recolor_all()
+
+
 def update_budget(d_id: int, budget: float):
     entry = _dwellings.get(d_id)
     if entry is None:
@@ -354,6 +363,9 @@ def _handle(msg: dict):
     elif t == "budget_updates":
         for u in msg["updates"]:
             update_budget(u["id"], u["budget"])
+
+    elif t == "reset":
+        reset_dwellings()
 
     elif t == "color_scheme":
         # A scheme pushed from Julia implicitly enables colour mode
@@ -516,11 +528,7 @@ class NIMBY_OT_Clear(bpy.types.Operator):
     bl_label       = "Clear Dwellings"
     bl_description = "Remove all dwelling cubes (landscape is kept)"
     def execute(self, _context):
-        _dwellings.clear()
-        _group_point_coords.clear()
-        for obj in bpy.data.objects:
-            if obj.name.startswith(_POINTS_OBJ_PREFIX) and obj.type == "MESH":
-                obj.data.clear_geometry()
+        reset_dwellings()
         return {"FINISHED"}
 
 

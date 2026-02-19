@@ -11,22 +11,21 @@ function neighborhood_density(city::City, nid::Int32)::Float32
     Float32(sum(height(city.buildings[bid]) for bid in bids)) / Float32(length(bids))
 end
 
-"""Snapshot neighbourhood densities once per step to avoid repeated O(k²) sums."""
-function compute_nd_cache(city::City)::Vector{Float32}
-    [neighborhood_density(city, Int32(nid)) for nid in 1:length(city.neighborhoods)]
-end
+"""Snapshot neighbourhood stats once per step to avoid repeated O(k²) scans."""
+function compute_nd_cache(city::City)
+    n = length(city.neighborhoods)
+    nd_mean = Vector{Float32}(undef, n)
+    nd_max  = Vector{Float32}(undef, n)
+    nd_min  = Vector{Float32}(undef, n)
 
-# ============================================================
-# Job assignment
-# ============================================================
-
-"""Assign jobs to selected agents; probability proportional to job_weight (height + 1)."""
-function assign_jobs!(city::City, rng::AbstractRNG, agent_ids = eachindex(city.agents))
-    n_b = Int32(length(city.buildings))
-    w   = Weights(Float64[job_weight(b) for b in city.buildings])
-    for i in agent_ids
-        city.agents[i].job_building_id = sample(rng, Int32(1):n_b, w)
+    for nid in 1:n
+        bids = city.neighborhood_to_buildings[nid]
+        hs = [Float32(height(city.buildings[bid])) for bid in bids]
+        nd_mean[nid] = isempty(hs) ? 0f0 : sum(hs) / Float32(length(hs))
+        nd_max[nid]  = isempty(hs) ? 0f0 : maximum(hs)
+        nd_min[nid]  = isempty(hs) ? 0f0 : minimum(hs)
     end
+    return (mean=nd_mean, max=nd_max, min=nd_min)
 end
 
 # ============================================================
@@ -45,7 +44,7 @@ Sample 2n candidate building IDs using alternating search criteria.
 function search_candidates(
     agent   ::Agent,
     city    ::City,
-    nd_cache::Vector{Float32},
+    nd_cache,
     n       ::Int,
     rng     ::AbstractRNG,
 )::Vector{Int32}
@@ -54,7 +53,7 @@ function search_candidates(
 
     # Type-A weights: neighbourhood density marginal (consistent with copula)
     wA = Weights([begin
-            nd = nd_cache[b.neighborhood_id]
+            nd = nd_cache.mean[b.neighborhood_id]
             Float64(_u_pct_diff(nd, agent.pref_neighborhood_density, agent.σ_neighborhood)) + 1e-8
         end
         for b in city.buildings])
@@ -121,59 +120,68 @@ end
 
 One model step:
 
-1. Assign jobs for the selected agent subset (typically newly added agents).
-2. Snapshot neighbourhood densities (used for search weights and utility ranking).
+1. Keep job locations fixed (assigned at agent creation time).
+2. Snapshot neighbourhood densities (used for utility ranking).
 3. Shuffle selected agents and process each one:
      a. Sample existing dwellings (vacant and occupied) at random.
-     b. Among sampled dwellings, pick the highest-utility vacant one (if any).
-     c. Otherwise build a new dwelling in the top-utility sampled building.
+     b. Among sampled dwellings, find the best vacant option.
+     c. Move only if that sampled vacant option improves utility over current home.
+     d. If the agent is unhoused and no sampled vacancy is available, build.
 """
 function step!(
     city     ::City;
     n_search ::Int          = 5,
     rng      ::AbstractRNG  = Random.default_rng(),
     agent_ids              = eachindex(city.agents),
+    build_if_unhoused::Bool = true,
 )
     isempty(agent_ids) && return
 
-    # 1. Assign jobs for selected agents only
-    assign_jobs!(city, rng, agent_ids)
-
-    # 2. Snapshot neighbourhood densities at step start
+    # 1. Snapshot neighbourhood densities at step start
     nd_cache = compute_nd_cache(city)
 
-    # 3. Process selected agents once in random order
+    # 2. Process selected agents once in random order
     selected = [city.agents[i] for i in agent_ids]
     for agent in shuffle(rng, selected)
         jpos = city.buildings[agent.job_building_id].pos
 
-        # --- sampled building fallback for potential new construction ---
-        cand_bids   = search_candidates(agent, city, nd_cache, n_search, rng)
-        unique_bids = unique(cand_bids)
-        sort!(unique_bids;
-              by  = bid -> agent_utility(agent, city.buildings[bid], nd_cache, jpos),
-              rev = true)
-
-        # --- sample existing dwellings and take best sampled vacancy ---
+        # --- sample existing dwellings (vacant + occupied), choose best vacant ---
         sampled = search_dwellings(city, n_search, rng)
-        best_d = nothing
-        best_u = -Inf32
+        best_vac = nothing
+        best_vac_u = -Inf32
 
         for d in sampled
-            if d.occupant_id == 0 || d.occupant_id == agent.id
+            if d.occupant_id == 0
                 b = city.buildings[d.building_id]
                 u = agent_utility(agent, b, nd_cache, jpos)
-                if u > best_u
-                    best_u = u
-                    best_d = d
+                if u > best_vac_u
+                    best_vac_u = u
+                    best_vac = d
                 end
             end
         end
 
-        if best_d === nothing
-            build_and_move_in!(agent, city.buildings[first(unique_bids)], city)
+        current_u = if agent.dwelling_id == 0
+            -Inf32
         else
-            move_into_vacant!(agent, best_d, city)
+            cur_d = city.dwellings[agent.dwelling_id]
+            cur_b = city.buildings[cur_d.building_id]
+            agent_utility(agent, cur_b, nd_cache, jpos)
+        end
+
+        if best_vac !== nothing && best_vac_u > current_u
+            move_into_vacant!(agent, best_vac, city)
+            continue
+        end
+
+        if agent.dwelling_id == 0 && build_if_unhoused
+            # No sampled vacancy available for an unhoused entrant: build.
+            cand_bids   = search_candidates(agent, city, nd_cache, n_search, rng)
+            unique_bids = unique(cand_bids)
+            sort!(unique_bids;
+                  by  = bid -> agent_utility(agent, city.buildings[bid], nd_cache, jpos),
+                  rev = true)
+            build_and_move_in!(agent, city.buildings[first(unique_bids)], city)
         end
     end
 end

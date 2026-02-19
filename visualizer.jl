@@ -106,6 +106,18 @@ function _send_chunked!(vis::Visualizer, msg_type::String, key::String, items)
     end
 end
 
+"""
+    reset_vis!(vis)
+
+Clear visualizer-side diff tracking and ask Blender to clear current dwellings.
+Use this before a full_sync! when resetting the simulation state.
+"""
+function reset_vis!(vis::Visualizer)
+    empty!(vis.sent_ids)
+    empty!(vis.last_budgets)
+    _send!(vis, Dict("type" => "reset"))
+end
+
 # ============================================================
 # Sync helpers
 # ============================================================

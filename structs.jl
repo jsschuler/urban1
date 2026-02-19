@@ -57,6 +57,8 @@ mutable struct Agent
 
     # Residential preference parameters (used in marginal transforms)
     pref_neighborhood_density::Float32  # preferred avg dwellings/building in neighbourhood
+    pref_neighborhood_max_height::Float32  # preferred max building height in neighbourhood
+    pref_neighborhood_min_height::Float32  # preferred min building height in neighbourhood
     pref_building_height::Float32       # preferred home building height (floors)
     σ_neighborhood::Float32            # sensitivity to % deviation from preferred neighbourhood density
     σ_building::Float32                # sensitivity to % deviation from preferred building height

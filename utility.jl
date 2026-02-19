@@ -61,31 +61,48 @@ const _FRANK_EPS   = 1f-6   # u clamp margin
 const _FRANK_THETA_INDEP = 1f-6   # |θ| below this → independence
 const _FRANK_THETA_MAX   = 50f0   # |θ| above this → Fréchet limits
 
-function frank_copula(u1::Float32, u2::Float32, u3::Float32, θ::Float32)::Float32
+Base.@kwdef mutable struct UtilityDimensions
+    use_proximity::Bool = true
+    use_neighborhood_mean::Bool = true
+    use_neighborhood_max::Bool = true
+    use_neighborhood_min::Bool = true
+    use_building_height::Bool = true
+end
+
+const _UTILITY_DIMS = Ref(UtilityDimensions())
+
+function set_utility_dimensions!(; kwargs...)
+    for (k, v) in kwargs
+        setfield!(_UTILITY_DIMS[], k, Bool(v))
+    end
+    return _UTILITY_DIMS[]
+end
+
+get_utility_dimensions() = _UTILITY_DIMS[]
+
+function frank_copula(u::Vector{Float32}, θ::Float32)::Float32
+    n = length(u)
+    n == 0 && return 1f0
+    n == 1 && return clamp(u[1], 0f0, 1f0)
+
     # --- boundary cases ---
-    abs(θ) < _FRANK_THETA_INDEP && return u1 * u2 * u3
+    abs(θ) < _FRANK_THETA_INDEP && return reduce(*, u; init=1f0)
 
     if θ > _FRANK_THETA_MAX
-        return min(u1, u2, u3)                         # perfect positive dependence
+        return minimum(u)                              # perfect positive dependence
     elseif θ < -_FRANK_THETA_MAX
-        return max(u1 + u2 + u3 - 2f0, 0f0)           # Fréchet lower bound
+        return max(sum(u) - Float32(n - 1), 0f0)      # Fréchet lower bound
     end
 
     # --- clamp u away from singularities ---
-    u1 = clamp(u1, _FRANK_EPS, 1f0 - _FRANK_EPS)
-    u2 = clamp(u2, _FRANK_EPS, 1f0 - _FRANK_EPS)
-    u3 = clamp(u3, _FRANK_EPS, 1f0 - _FRANK_EPS)
-
-    a1 = exp(-θ * u1) - 1f0
-    a2 = exp(-θ * u2) - 1f0
-    a3 = exp(-θ * u3) - 1f0
-    D  = (exp(-θ) - 1f0)^2
-
-    arg = 1f0 + (a1 * a2 * a3) / D
+    uc = map(x -> clamp(x, _FRANK_EPS, 1f0 - _FRANK_EPS), u)
+    num = reduce(*, (exp(-θ * ui) - 1f0 for ui in uc); init=1f0)
+    den = (exp(-θ) - 1f0)^(n - 1)
+    arg = 1f0 + num / den
 
     # guard against floating-point noise pushing arg out of domain
     if arg ≤ 0f0
-        return θ > 0f0 ? min(u1, u2, u3) : max(u1 + u2 + u3 - 2f0, 0f0)
+        return θ > 0f0 ? minimum(uc) : max(sum(uc) - Float32(n - 1), 0f0)
     end
 
     return clamp(-log(arg) / θ, 0f0, 1f0)
@@ -110,16 +127,23 @@ dependence) is the economically natural setting.
 function agent_utility(
     agent   ::Agent,
     b       ::Building,
-    nd_cache::Vector{Float32},
+    nd_cache,
     job_pos ::Position,
 )::Float32
-    nd   = nd_cache[b.neighborhood_id]
+    nd_mean = nd_cache.mean[b.neighborhood_id]
+    nd_max  = nd_cache.max[b.neighborhood_id]
+    nd_min  = nd_cache.min[b.neighborhood_id]
     bh   = Float32(height(b))
     dist = distance(b.pos, job_pos)
 
-    u_prox    = _u_proximity(dist, agent.proximity_scale)
-    u_density = _u_pct_diff(nd,  agent.pref_neighborhood_density, agent.σ_neighborhood)
-    u_height  = _u_pct_diff(bh,  agent.pref_building_height,      agent.σ_building)
+    dims = _UTILITY_DIMS[]
+    marginals = Float32[]
 
-    return frank_copula(u_prox, u_density, u_height, agent.copula_θ)
+    dims.use_proximity && push!(marginals, _u_proximity(dist, agent.proximity_scale))
+    dims.use_neighborhood_mean && push!(marginals, _u_pct_diff(nd_mean, agent.pref_neighborhood_density, agent.σ_neighborhood))
+    dims.use_neighborhood_max && push!(marginals, _u_pct_diff(nd_max, agent.pref_neighborhood_max_height, agent.σ_neighborhood))
+    dims.use_neighborhood_min && push!(marginals, _u_pct_diff(nd_min, agent.pref_neighborhood_min_height, agent.σ_neighborhood))
+    dims.use_building_height && push!(marginals, _u_pct_diff(bh, agent.pref_building_height, agent.σ_building))
+
+    return frank_copula(marginals, agent.copula_θ)
 end
