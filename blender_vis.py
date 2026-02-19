@@ -83,7 +83,7 @@ def _scheme_value(d_id: int) -> float:
         # Mean building height inside the k×k neighbourhood block
         x, y, k = entry["x"], entry["y"], 8
         ox, oy = (x // k) * k, (y // k) * k
-        heights, seen = {}, set()
+        heights = {}
         for e in _dwellings.values():
             if ox <= e["x"] < ox + k and oy <= e["y"] < oy + k:
                 pos = (e["x"], e["y"])
@@ -249,20 +249,20 @@ def _handle(msg: dict):
 # WebSocket background thread
 # ============================================================
 
-def _on_open(ws):
+def _on_open(_ws):
     print("[NIMBY] Connected to Julia visualizer")
 
-def _on_message(ws, raw):
+def _on_message(_ws, raw):
     try:
         _msg_queue.put(json.loads(raw))
     except Exception as e:
         print(f"[NIMBY] parse error: {e}")
 
-def _on_error(ws, error):
+def _on_error(_ws, error):
     print(f"[NIMBY] error: {error}")
 
-def _on_close(ws, code, reason):
-    print(f"[NIMBY] disconnected (code={code})")
+def _on_close(_ws, _code, _reason):
+    print(f"[NIMBY] disconnected (code={_code})")
 
 
 def _start_ws(url: str):
@@ -341,7 +341,7 @@ class NIMBY_OT_Start(bpy.types.Operator):
                         area.tag_redraw()
         return {"PASS_THROUGH"}
 
-    def invoke(self, context, event):
+    def invoke(self, context, _event):
         _start_ws(context.scene.nimby_vis.ws_url)
         wm = context.window_manager
         self._timer = wm.event_timer_add(
@@ -358,7 +358,7 @@ class NIMBY_OT_Start(bpy.types.Operator):
 class NIMBY_OT_Stop(bpy.types.Operator):
     bl_idname = "wm.nimby_stop"
     bl_label  = "Stop"
-    def execute(self, context):
+    def execute(self, _context):
         _stop_ws()
         return {"FINISHED"}
 
@@ -367,7 +367,7 @@ class NIMBY_OT_Clear(bpy.types.Operator):
     bl_idname      = "wm.nimby_clear"
     bl_label       = "Clear Dwellings"
     bl_description = "Remove all dwelling cubes (landscape is kept)"
-    def execute(self, context):
+    def execute(self, _context):
         for entry in _dwellings.values():
             bpy.data.objects.remove(entry["obj"], do_unlink=True)
         _dwellings.clear()
@@ -378,7 +378,7 @@ class NIMBY_OT_Recolor(bpy.types.Operator):
     bl_idname      = "wm.nimby_recolor"
     bl_label       = "Recolor All"
     bl_description = "Reapply colour scheme to all existing dwellings"
-    def execute(self, context):
+    def execute(self, _context):
         recolor_all()
         return {"FINISHED"}
 
@@ -387,7 +387,7 @@ class NIMBY_OT_Recolor(bpy.types.Operator):
 # ============================================================
 
 def _enabled_update(self, context):
-    global _scheme_enabled
+    global _scheme_enabled  # noqa: PLW0603
     _scheme_enabled = context.scene.nimby_vis.cs_enabled
     recolor_all()
 

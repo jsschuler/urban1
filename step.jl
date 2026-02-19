@@ -1,46 +1,19 @@
 using Random
 using StatsBase: sample, Weights
 
-include("structs.jl")
-
 # ============================================================
-# Utility
+# Neighbourhood density cache
 # ============================================================
 
-"""Compute mean building height across a neighborhood (neighborhood density)."""
+"""Mean building height across all buildings in neighbourhood nid."""
 function neighborhood_density(city::City, nid::Int32)::Float32
     bids = city.neighborhood_to_buildings[nid]
     Float32(sum(height(city.buildings[bid]) for bid in bids)) / Float32(length(bids))
 end
 
-"""
-Cache neighborhood densities for all neighborhoods at a point in time.
-Passing the cache avoids recomputing O(k²) sums per building per agent.
-"""
+"""Snapshot neighbourhood densities once per step to avoid repeated O(k²) sums."""
 function compute_nd_cache(city::City)::Vector{Float32}
     [neighborhood_density(city, Int32(nid)) for nid in 1:length(city.neighborhoods)]
-end
-
-"""Full utility of an agent living in `b`, given a neighbourhood-density cache."""
-function agent_utility(
-    agent   ::Agent,
-    b       ::Building,
-    nd_cache::Vector{Float32},
-    job_pos ::Position,
-)::Float32
-    nd   = nd_cache[b.neighborhood_id]
-    bh   = Float32(height(b))
-    dist = distance(b.pos, job_pos)
-    prox = 1.0f0 / (1.0f0 + dist)
-
-    density_u = exp(-((nd  - agent.pref_neighborhood_density)^2) /
-                     (2.0f0 * agent.σ_neighborhood^2))
-    height_u  = exp(-((bh  - agent.pref_building_height)^2)      /
-                     (2.0f0 * agent.σ_building^2))
-
-    return agent.w_neighborhood * density_u +
-           agent.w_proximity    * prox       +
-           agent.w_building     * height_u
 end
 
 # ============================================================
@@ -79,21 +52,22 @@ function search_candidates(
     n_b  = length(city.buildings)
     jpos = city.buildings[agent.job_building_id].pos
 
-    # Type-A weights: neighbourhood density match
-    wA = Weights(Float64[begin
-        nd = nd_cache[b.neighborhood_id]
-        exp(-((nd - agent.pref_neighborhood_density)^2) /
-             (2.0 * agent.σ_neighborhood^2)) + 1e-8
-    end for b in city.buildings])
+    # Type-A weights: neighbourhood density marginal (consistent with copula)
+    wA = Weights([begin
+            nd = nd_cache[b.neighborhood_id]
+            Float64(_u_pct_diff(nd, agent.pref_neighborhood_density, agent.σ_neighborhood)) + 1e-8
+        end
+        for b in city.buildings])
 
-    # Type-B weights: building height match × job proximity
-    wB = Weights(Float64[begin
-        bh   = Float64(height(b))
-        dist = Float64(distance(b.pos, jpos))
-        hu   = exp(-((bh - agent.pref_building_height)^2) /
-                    (2.0 * agent.σ_building^2))
-        hu * (1.0 / (1.0 + dist)) + 1e-8
-    end for b in city.buildings])
+    # Type-B weights: building height marginal × proximity marginal
+    wB = Weights([begin
+            bh   = Float32(height(b))
+            dist = distance(b.pos, jpos)
+            uh   = Float64(_u_pct_diff(bh,  agent.pref_building_height, agent.σ_building))
+            up   = Float64(_u_proximity(dist, agent.proximity_scale))
+            uh * up + 1e-8
+        end
+        for b in city.buildings])
 
     out = Vector{Int32}(undef, 2n)
     for i in 1:2n

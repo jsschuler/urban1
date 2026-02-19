@@ -7,7 +7,7 @@ struct Position
     y::Int32
 end
 
-Base.distance(a::Position, b::Position) =
+distance(a::Position, b::Position) =
     sqrt(Float32((a.x - b.x)^2 + (a.y - b.y)^2))
 
 # ============================================================
@@ -55,16 +55,15 @@ mutable struct Agent
 
     budget::Float32
 
-    # Utility preference parameters
-    pref_neighborhood_density::Float32  # preferred avg dwellings/building in neighborhood
+    # Residential preference parameters (used in marginal transforms)
+    pref_neighborhood_density::Float32  # preferred avg dwellings/building in neighbourhood
     pref_building_height::Float32       # preferred home building height (floors)
-    σ_neighborhood::Float32            # Gaussian width for neighborhood density utility
-    σ_building::Float32                # Gaussian width for building height utility
+    σ_neighborhood::Float32            # sensitivity to % deviation from preferred neighbourhood density
+    σ_building::Float32                # sensitivity to % deviation from preferred building height
+    proximity_scale::Float32           # exponential decay length for job distance (building units)
 
-    # Utility component weights
-    w_proximity::Float32
-    w_neighborhood::Float32
-    w_building::Float32
+    # Copula dependence parameter (Frank copula θ; > 0 = positive dependence)
+    copula_θ::Float32
 end
 
 # ============================================================

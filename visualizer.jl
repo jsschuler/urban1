@@ -1,8 +1,6 @@
 using HTTP
 using JSON3
 
-include("structs.jl")
-
 # ============================================================
 # Color scheme
 # ============================================================
@@ -56,12 +54,18 @@ Visualizer(; scheme = ColorScheme()) =
     listen!(vis; host, port)
 
 Start a WebSocket server in the background. Blender connects to ws://host:port.
-Reconnections are handled automatically — each new Blender session gets a full sync.
+On every (re)connection full_sync! is called automatically so Blender always
+receives the complete current state before any incremental diffs.
+city_ref holds a reference to the live City so it can be synced on reconnect.
 """
-function listen!(vis::Visualizer; host::String = "127.0.0.1", port::Int = 8765)
+function listen!(vis::Visualizer, city_ref::Ref{Union{Nothing,City}};
+                 host::String = "127.0.0.1", port::Int = 8765)
     @async HTTP.WebSockets.listen(host, UInt16(port)) do ws
         vis.ws[] = ws
         @info "Blender connected"
+        # Push full state so a fresh or reconnecting Blender is never incomplete
+        city = city_ref[]
+        isnothing(city) || full_sync!(vis, city)
         try
             while isopen(ws)
                 HTTP.WebSockets.receive(ws)   # drain pings / any client messages
