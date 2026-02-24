@@ -53,6 +53,7 @@ function generate_city(n_x::Int, n_y::Int; k::Int = 8)::City
         Agent[],
         Int32(k), Int32(n_x), Int32(n_y),
         neighborhood_to_buildings,
+        [LandUseLaw() for _ in 1:n_neighborhoods],
     )
 end
 

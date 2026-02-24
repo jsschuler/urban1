@@ -31,6 +31,21 @@ struct Neighborhood
     pos::Position   # position in neighborhood grid (neighborhood units)
 end
 
+mutable struct LawNode
+    is_leaf::Bool
+    feature::Symbol
+    threshold::Float32
+    prohibit_new_build::Bool
+    left::Union{Nothing,LawNode}
+    right::Union{Nothing,LawNode}
+end
+
+Base.@kwdef mutable struct LandUseLaw
+    active::Bool = false
+    tree::Union{Nothing,LawNode} = nothing
+    vote_share::Float32 = 0.0f0
+end
+
 struct Building
     id::Int32
     pos::Position           # position in city grid (building units)
@@ -83,4 +98,5 @@ struct City
     n_y::Int32      # neighborhoods in y direction
 
     neighborhood_to_buildings::Vector{Vector{Int32}}  # neighborhood id → [building ids]
+    neighborhood_laws::Vector{LandUseLaw}             # neighborhood id → active/pending law
 end

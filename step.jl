@@ -1,5 +1,6 @@
 using Random
 using StatsBase: sample, Weights
+using Statistics: median
 
 # ============================================================
 # Neighbourhood density cache
@@ -14,18 +15,28 @@ end
 """Snapshot neighbourhood stats once per step to avoid repeated O(k²) scans."""
 function compute_nd_cache(city::City)
     n = length(city.neighborhoods)
-    nd_mean = Vector{Float32}(undef, n)
+    nd_median = Vector{Float32}(undef, n)
     nd_max  = Vector{Float32}(undef, n)
     nd_min  = Vector{Float32}(undef, n)
+    nd_vacancy = Vector{Float32}(undef, n)
 
     for nid in 1:n
         bids = city.neighborhood_to_buildings[nid]
         hs = [Float32(height(city.buildings[bid])) for bid in bids]
-        nd_mean[nid] = isempty(hs) ? 0f0 : sum(hs) / Float32(length(hs))
+        nd_median[nid] = isempty(hs) ? 0f0 : Float32(median(hs))
         nd_max[nid]  = isempty(hs) ? 0f0 : maximum(hs)
         nd_min[nid]  = isempty(hs) ? 0f0 : minimum(hs)
+        n_dw = 0
+        n_vac = 0
+        for bid in bids
+            for d in city.buildings[bid].dwellings
+                n_dw += 1
+                n_vac += d.occupant_id == 0 ? 1 : 0
+            end
+        end
+        nd_vacancy[nid] = n_dw == 0 ? 1f0 : Float32(n_vac / n_dw)
     end
-    return (mean=nd_mean, max=nd_max, min=nd_min)
+    return (median=nd_median, max=nd_max, min=nd_min, vacancy_rate=nd_vacancy)
 end
 
 # ============================================================
@@ -53,7 +64,7 @@ function search_candidates(
 
     # Type-A weights: neighbourhood density marginal (consistent with copula)
     wA = Weights([begin
-            nd = nd_cache.mean[b.neighborhood_id]
+            nd = nd_cache.median[b.neighborhood_id]
             Float64(_u_pct_diff(nd, agent.pref_neighborhood_density, agent.σ_neighborhood)) + 1e-8
         end
         for b in city.buildings])
@@ -181,7 +192,10 @@ function step!(
             sort!(unique_bids;
                   by  = bid -> agent_utility(agent, city.buildings[bid], nd_cache, jpos),
                   rev = true)
-            build_and_move_in!(agent, city.buildings[first(unique_bids)], city)
+            build_bid = findfirst(bid -> can_build_in_neighborhood(city, Int(city.buildings[bid].neighborhood_id), nd_cache), unique_bids)
+            if build_bid !== nothing
+                build_and_move_in!(agent, city.buildings[unique_bids[build_bid]], city)
+            end
         end
     end
 end

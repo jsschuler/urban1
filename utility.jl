@@ -63,7 +63,7 @@ const _FRANK_THETA_MAX   = 50f0   # |θ| above this → Fréchet limits
 
 Base.@kwdef mutable struct UtilityDimensions
     use_proximity::Bool = true
-    use_neighborhood_mean::Bool = true
+    use_neighborhood_median::Bool = true
     use_neighborhood_max::Bool = true
     use_neighborhood_min::Bool = true
     use_building_height::Bool = true
@@ -73,7 +73,11 @@ const _UTILITY_DIMS = Ref(UtilityDimensions())
 
 function set_utility_dimensions!(; kwargs...)
     for (k, v) in kwargs
-        setfield!(_UTILITY_DIMS[], k, Bool(v))
+        if k == :use_neighborhood_mean
+            setfield!(_UTILITY_DIMS[], :use_neighborhood_median, Bool(v))
+        else
+            setfield!(_UTILITY_DIMS[], k, Bool(v))
+        end
     end
     return _UTILITY_DIMS[]
 end
@@ -130,7 +134,7 @@ function agent_utility(
     nd_cache,
     job_pos ::Position,
 )::Float32
-    nd_mean = nd_cache.mean[b.neighborhood_id]
+    nd_median = nd_cache.median[b.neighborhood_id]
     nd_max  = nd_cache.max[b.neighborhood_id]
     nd_min  = nd_cache.min[b.neighborhood_id]
     bh   = Float32(height(b))
@@ -140,7 +144,7 @@ function agent_utility(
     marginals = Float32[]
 
     dims.use_proximity && push!(marginals, _u_proximity(dist, agent.proximity_scale))
-    dims.use_neighborhood_mean && push!(marginals, _u_pct_diff(nd_mean, agent.pref_neighborhood_density, agent.σ_neighborhood))
+    dims.use_neighborhood_median && push!(marginals, _u_pct_diff(nd_median, agent.pref_neighborhood_density, agent.σ_neighborhood))
     dims.use_neighborhood_max && push!(marginals, _u_pct_diff(nd_max, agent.pref_neighborhood_max_height, agent.σ_neighborhood))
     dims.use_neighborhood_min && push!(marginals, _u_pct_diff(nd_min, agent.pref_neighborhood_min_height, agent.σ_neighborhood))
     dims.use_building_height && push!(marginals, _u_pct_diff(bh, agent.pref_building_height, agent.σ_building))

@@ -8,6 +8,7 @@ include("structs.jl")
 include("utility.jl")
 include("generation.jl")
 include("step.jl")
+include("laws.jl")
 include("visualizer.jl")
 
 # ============================================================
@@ -68,7 +69,8 @@ end
 
 """
     run_steps!(city, vis, rng; n_steps, n_search, step_delay,
-                                 agents_inflow, existing_move_share, blender_update_every)
+                                 agents_inflow, existing_move_share, blender_update_every,
+                                 land_use_eval_every, land_use_eval_horizon)
 
 Run `n_steps` steps of the model and print a one-line summary after each step.
 If `require_authorization=true` (default), Julia prompts for approval before
@@ -79,6 +81,11 @@ attempt relocation each step before new arrivals are added.
 Blender updates are throttled by `blender_update_every`:
   - `0`  → send once at the end of the batch
   - `k>0` → send every `k` steps (and once at the end if needed)
+Land-use policy evaluation:
+  - every `land_use_eval_every` steps, each neighbourhood runs a
+    hypothetical branch pair (`with_rule` / `without_rule`) for
+    `land_use_eval_horizon` steps with hypothetical entrants only.
+  - majority utility vote by incumbent residents decides adoption.
 
 Can be called repeatedly from the REPL for interactive exploration:
 
@@ -96,6 +103,8 @@ function run_steps!(
     agents_inflow::Int  = 100,
     existing_move_share::Float64 = 0.1,
     blender_update_every::Int = 0,
+    land_use_eval_every::Int = 10,
+    land_use_eval_horizon::Int = 10,
     step_delay::Float64 = 0.1,
     require_authorization::Bool = true,
 )
@@ -110,6 +119,15 @@ function run_steps!(
 
     last_sent_step = 0
     for t in 1:n_steps
+        if land_use_eval_every > 0 && t > 1 && (t - 1) % land_use_eval_every == 0
+            evaluate_land_use_laws!(
+                city, rng;
+                horizon=land_use_eval_horizon,
+                n_search=n_search,
+                agents_inflow=agents_inflow,
+            )
+        end
+
         t0 = time()
         n_existing = length(city.agents)
         n_movers = clamp(round(Int, existing_move_share * n_existing), 0, n_existing)
@@ -178,6 +196,9 @@ function reset_model!(
     end
     empty!(city.dwellings)
     empty!(city.agents)
+    for i in eachindex(city.neighborhood_laws)
+        city.neighborhood_laws[i] = LandUseLaw()
+    end
     n_agents > 0 && add_agents!(city, n_agents; rng=rng, kwargs...)
 
     if sync_blender
@@ -212,6 +233,8 @@ function run!(;
     agents_inflow::Int  = 100,
     existing_move_share::Float64 = 0.1,
     blender_update_every::Int = 0,
+    land_use_eval_every::Int = 10,
+    land_use_eval_horizon::Int = 10,
     step_delay::Float64 = 0.1,
     require_authorization::Bool = true,
     seed      ::Int     = 42,
@@ -219,7 +242,11 @@ function run!(;
     kwargs...
 )
     city, vis, rng = init_model(; n_x, n_y, k, n_agents, seed, ws_port, kwargs...)
-    run_steps!(city, vis, rng; n_steps, n_search, agents_inflow, existing_move_share, blender_update_every, step_delay, require_authorization)
+    run_steps!(
+        city, vis, rng;
+        n_steps, n_search, agents_inflow, existing_move_share, blender_update_every,
+        land_use_eval_every, land_use_eval_horizon, step_delay, require_authorization,
+    )
     return city, vis, rng
 end
 
