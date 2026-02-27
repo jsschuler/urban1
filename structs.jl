@@ -77,8 +77,7 @@ mutable struct Agent
     pref_building_height::Float32       # preferred home building height (floors)
     σ_neighborhood::Float32            # sensitivity to % deviation from preferred neighbourhood density
     σ_building::Float32                # sensitivity to % deviation from preferred building height
-    pref_proximity::Float32            # preferred distance from job (building units; 0 = live at job)
-    σ_proximity::Float32               # tolerance for deviation from preferred distance (building units)
+    proximity_scale::Float32           # exponential decay length for job distance (building units)
 
     # Copula dependence parameter (Frank copula θ; > 0 = positive dependence)
     copula_θ::Float32

@@ -88,9 +88,9 @@ function generate_agents!(
     pref_height_μ::Float32     = 3.0f0,
     pref_height_σ::Float32     = 2.0f0,
     # Marginal sensitivity parameters (% deviation scale; log-normal so always > 0)
-    σ_neighborhood_μ::Float32  = 0.5f0,   # log-scale mean  (median ≈ exp(0.5) ≈ 1.65)
+    σ_neighborhood_μ::Float32  = -0.5f0,  # log-scale mean  (median ≈ exp(-0.5) ≈ 0.61)
     σ_neighborhood_σ::Float32  = 0.3f0,
-    σ_building_μ::Float32      = 0.5f0,
+    σ_building_μ::Float32      = -0.5f0,  # log-scale mean  (median ≈ exp(-0.5) ≈ 0.61)
     σ_building_σ::Float32      = 0.3f0,
     # Proximity decay scale in building units (log-normal; median ≈ exp(2.5) ≈ 12)
     proximity_scale_μ::Float32 = 2.5f0,
@@ -147,9 +147,9 @@ function add_agents!(
     pref_height_μ::Float32     = 3.0f0,
     pref_height_σ::Float32     = 2.0f0,
     # Marginal sensitivity parameters (% deviation scale; log-normal so always > 0)
-    σ_neighborhood_μ::Float32  = 0.5f0,
+    σ_neighborhood_μ::Float32  = -0.5f0,  # log-scale mean  (median ≈ exp(-0.5) ≈ 0.61)
     σ_neighborhood_σ::Float32  = 0.3f0,
-    σ_building_μ::Float32      = 0.5f0,
+    σ_building_μ::Float32      = -0.5f0,  # log-scale mean  (median ≈ exp(-0.5) ≈ 0.61)
     σ_building_σ::Float32      = 0.3f0,
     # Proximity decay scale in building units (log-normal; median ≈ exp(2.5) ≈ 12)
     proximity_scale_μ::Float32 = 2.5f0,
