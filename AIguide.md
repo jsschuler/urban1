@@ -222,3 +222,15 @@ Fix: dropped VERTS instancing entirely and switched to **direct mesh geometry** 
 - Start / Stop / Reset buttons (state-aware: disabled when not applicable)
 - Live stats grid: step, agents, housed, dwellings, vacant, mean height, max height, step time
 - Auto-reconnects to Julia every 3 seconds if disconnected
+
+### 2026-02-27 (session 4)
+
+No code changes. Key model behaviour clarified:
+
+#### Why agents > dwellings (unhoused agents)
+
+- An unhoused agent is one with `dwelling_id == 0`.
+- New inflow agents (`build_if_unhoused=true`) can only fail to build if **all** `2*n_search` sampled candidate buildings fall in neighbourhoods where the active law's decision tree currently returns `prohibit_new_build = true`. This does **not** require every neighbourhood to have a law — a minority of blocked neighbourhoods combined with small sample size (default `n_search=5`, so 10 candidates) is sufficient.
+- Laws are **conditional**: an active `LandUseLaw` evaluates a depth-2 tree against live observables (`median_height`, `max_height`, `min_height`, `vacancy_rate`). A neighbourhood with an active law may still permit building at current conditions.
+- Once unhoused, an agent is **permanently stuck** unless a vacancy becomes available: in subsequent steps they are processed as movers with `build_if_unhoused=false` and can never build their way out.
+- The unhoused count is therefore monotonically non-decreasing once laws start passing.
