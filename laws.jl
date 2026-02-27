@@ -177,6 +177,7 @@ function evaluate_land_use_laws!(
     nd_without = compute_nd_cache(city_without)
     nd_with = compute_nd_cache(city_with)
 
+    passed = String[]
     for nid in 1:n_nh
         voters = incumbent[nid]
         if isempty(voters)
@@ -194,9 +195,10 @@ function evaluate_land_use_laws!(
             city.neighborhood_laws[nid] = proposed[nid]
             city.neighborhood_laws[nid].vote_share = share
             println("[LAW] neighbourhood $(nid) result: PASS (vote_share=$(round(share, digits=3)))")
+            push!(passed, "Nbhd $(nid) passed zoning law — $(round(Int, share*100))% yes")
         else
             println("[LAW] neighbourhood $(nid) result: FAIL (vote_share=$(round(share, digits=3)))")
         end
     end
-    return city
+    return passed
 end

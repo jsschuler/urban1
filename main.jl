@@ -125,12 +125,15 @@ function run_steps!(
         vis.stop_flag[] && break
 
         if land_use_eval_every > 0 && t > 1 && (t - 1) % land_use_eval_every == 0
-            evaluate_land_use_laws!(
+            passed = evaluate_land_use_laws!(
                 city, rng;
                 horizon=land_use_eval_horizon,
                 n_search=n_search,
                 agents_inflow=agents_inflow,
             )
+            for msg in passed
+                _broadcast_ctrl!(vis, Dict("type" => "law", "msg" => msg))
+            end
         end
 
         t0 = time()
@@ -165,6 +168,51 @@ function run_steps!(
     end
 end
 
+@inline function _hist_bin!(h::Vector{Int}, u::Float32, n::Int)
+    h[clamp(floor(Int, u * n) + 1, 1, n)] += 1
+end
+
+"""
+Compute per-step utility histograms over all housed agents.
+Returns four n_bins-length Int vectors:
+  overall   — Frank-copula utility (all active dimensions)
+  proximity — commute-distance marginal only
+  nh        — neighbourhood median-height marginal only
+  bldg      — building-height marginal only
+"""
+function _utility_histograms(city::City; n_bins::Int = 20)
+    z = zeros(Int, n_bins)
+    any(a -> a.dwelling_id != 0, city.agents) || return (overall=copy(z), proximity=copy(z), nh=copy(z), bldg=copy(z))
+
+    nd_cache    = compute_nd_cache(city)
+    h_overall   = zeros(Int, n_bins)
+    h_proximity = zeros(Int, n_bins)
+    h_nh        = zeros(Int, n_bins)
+    h_bldg      = zeros(Int, n_bins)
+
+    h_nh_max  = zeros(Int, n_bins)
+    h_nh_min  = zeros(Int, n_bins)
+
+    for agent in city.agents
+        agent.dwelling_id == 0 && continue
+        d    = city.dwellings[agent.dwelling_id]
+        b    = city.buildings[d.building_id]
+        jpos = city.buildings[agent.job_building_id].pos
+        nid  = b.neighborhood_id
+
+        dist = distance(b.pos, jpos)
+        bh   = Float32(height(b))
+
+        _hist_bin!(h_overall,   agent_utility(agent, b, nd_cache, jpos),                                         n_bins)
+        _hist_bin!(h_proximity, _u_proximity(dist, agent.proximity_scale),                                        n_bins)
+        _hist_bin!(h_nh,        _u_pct_diff(nd_cache.median[nid], agent.pref_neighborhood_density,   agent.σ_neighborhood), n_bins)
+        _hist_bin!(h_nh_max,    _u_pct_diff(nd_cache.max[nid],    agent.pref_neighborhood_max_height, agent.σ_neighborhood), n_bins)
+        _hist_bin!(h_nh_min,    _u_pct_diff(nd_cache.min[nid],    agent.pref_neighborhood_min_height, agent.σ_neighborhood), n_bins)
+        _hist_bin!(h_bldg,      _u_pct_diff(bh, agent.pref_building_height, agent.σ_building),                   n_bins)
+    end
+    return (overall=h_overall, proximity=h_proximity, nh=h_nh, nh_max=h_nh_max, nh_min=h_nh_min, bldg=h_bldg)
+end
+
 function _print_stats(t::Int, city::City, elapsed::Float64)
     n_dw     = length(city.dwellings)
     n_agents = length(city.agents)
@@ -185,16 +233,23 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
     occupied = filter(b -> height(b) > 0, city.buildings)
     h_mean   = isempty(occupied) ? 0.0 : mean(height.(occupied))
     h_max    = isempty(occupied) ? 0   : maximum(height.(occupied))
+    hists    = _utility_histograms(city)
     _broadcast_ctrl!(vis, Dict(
-        "type"      => "stats",
-        "step"      => t,
-        "agents"    => length(city.agents),
-        "housed"    => n_housed,
-        "dwellings" => length(city.dwellings),
-        "vacant"    => n_vacant,
-        "h_mean"    => round(h_mean; digits=2),
-        "h_max"     => h_max,
-        "elapsed"   => round(elapsed; digits=3),
+        "type"           => "stats",
+        "step"           => t,
+        "agents"         => length(city.agents),
+        "housed"         => n_housed,
+        "dwellings"      => length(city.dwellings),
+        "vacant"         => n_vacant,
+        "h_mean"         => round(h_mean; digits=2),
+        "h_max"          => h_max,
+        "elapsed"        => round(elapsed; digits=3),
+        "hist_overall"   => hists.overall,
+        "hist_proximity" => hists.proximity,
+        "hist_nh"        => hists.nh,
+        "hist_nh_max"    => hists.nh_max,
+        "hist_nh_min"    => hists.nh_min,
+        "hist_bldg"      => hists.bldg,
     ))
 end
 
