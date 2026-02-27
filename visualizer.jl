@@ -39,14 +39,18 @@ _scheme_dict(s::ColorScheme) = Dict(
 # ============================================================
 
 mutable struct Visualizer
-    ws          ::Ref{Any}               # current WebSocket connection, or nothing
-    sent_ids    ::Set{Int32}             # dwelling IDs already in Blender
-    last_budgets::Dict{Int32,Float32}    # dwelling_id → last-sent budget (0 = vacant)
-    scheme      ::ColorScheme
+    ws           ::Ref{Any}               # current WebSocket connection, or nothing
+    sent_ids     ::Set{Int32}             # dwelling IDs already in Blender
+    last_budgets ::Dict{Int32,Float32}    # dwelling_id → last-sent budget (0 = vacant)
+    scheme       ::ColorScheme
+    incoming     ::Channel{Any}           # commands from any client (Blender or browser)
+    ctrl_clients ::Vector{Any}            # browser WebSocket connections
+    stop_flag    ::Ref{Bool}              # set true to interrupt run_steps!
 end
 
 Visualizer(; scheme = ColorScheme()) =
-    Visualizer(Ref{Any}(nothing), Set{Int32}(), Dict{Int32,Float32}(), scheme)
+    Visualizer(Ref{Any}(nothing), Set{Int32}(), Dict{Int32,Float32}(), scheme,
+               Channel{Any}(32), Any[], Ref(true))
 
 # ============================================================
 # Server
@@ -68,10 +72,24 @@ function listen!(vis::Visualizer, city_ref::Ref{Union{Nothing,City}};
         # Push full state so a fresh or reconnecting Blender is never incomplete
         city = city_ref[]
         isnothing(city) || full_sync!(vis, city)
+        # Read incoming Blender messages (e.g. reset_request) in a separate
+        # task so that concurrent sends from send_step_diff! are never blocked
+        # by the receive path sharing the same WebSocket.
+        @async try
+            for msg in ws
+                try
+                    data = JSON3.read(msg, Dict{String,Any})
+                    put!(vis.incoming, data)
+                catch e
+                    @warn "WebSocket message parse error" exception=(e, catch_backtrace())
+                end
+            end
+        catch e
+            @warn "WebSocket reader error" exception=(e, catch_backtrace())
+        end
+
         try
-            # We currently only push server->client updates. Keeping the handler
-            # alive with a passive loop avoids premature closes caused by receive
-            # loop edge-cases when the client is mostly send-idle.
+            # Passive loop: keeps the handler alive so the connection stays open.
             while !HTTP.WebSockets.isclosed(ws)
                 sleep(0.1)
             end
@@ -212,4 +230,55 @@ function set_color_scheme!(vis::Visualizer; kwargs...)
         setfield!(vis.scheme, k, v)
     end
     _send!(vis, Dict("type" => "color_scheme", "scheme" => _scheme_dict(vis.scheme)))
+end
+
+# ============================================================
+# Browser control server
+# ============================================================
+
+"""Broadcast a JSON payload to all connected browser clients."""
+function _broadcast_ctrl!(vis::Visualizer, payload::AbstractDict)
+    dead = Int[]
+    for (i, ws) in enumerate(vis.ctrl_clients)
+        try
+            HTTP.WebSockets.send(ws, JSON3.write(payload))
+        catch
+            push!(dead, i)
+        end
+    end
+    isempty(dead) || deleteat!(vis.ctrl_clients, dead)
+end
+
+"""
+    listen_control!(vis; port=8766)
+
+Start a WebSocket server for browser clients on a separate port.
+All incoming messages are forwarded to `vis.incoming` for processing
+by the control loop started in `main.jl`.
+On connect, sends the current running state so the UI is immediately in sync.
+"""
+function listen_control!(vis::Visualizer; port::Int = 8766)
+    @async HTTP.WebSockets.listen("127.0.0.1", UInt16(port)) do ws
+        push!(vis.ctrl_clients, ws)
+        @info "Browser connected"
+        HTTP.WebSockets.send(ws, JSON3.write(
+            Dict("type" => "running", "value" => !vis.stop_flag[])
+        ))
+        try
+            for msg in ws
+                try
+                    data = JSON3.read(msg, Dict{String,Any})
+                    put!(vis.incoming, data)
+                catch e
+                    @warn "Control message parse error" exception=(e, catch_backtrace())
+                end
+            end
+        catch e
+            @warn "Control handler error" exception=(e, catch_backtrace())
+        finally
+            filter!(c -> c !== ws, vis.ctrl_clients)
+            @info "Browser disconnected"
+        end
+    end
+    @info "Control server on ws://127.0.0.1:$(port)"
 end

@@ -7,11 +7,22 @@ Install (run once in Blender's Python console):
 
 Load this file as a Blender script or add-on, then open the N-panel (View3D → N → NIMBY).
 Press "Setup Scene" first, then "Start" to connect to the Julia WebSocket server.
+
+Rendering approach
+──────────────────
+One mesh object per neighbourhood (NIMBY_NH_<id>).  Each dwelling is 6 quad faces
+(8 vertices, 24 loops) added directly to that mesh.  A FLOAT_COLOR CORNER attribute
+named "display_color" carries one RGBA colour per loop; all 24 loops of a dwelling
+share the same colour so each cube face is uniformly coloured.
+
+The shared material reads "display_color" via ShaderNodeAttribute (attribute_type
+GEOMETRY), which is the standard, version-stable way to read per-face-corner
+attributes from a mesh — no instancing tricks required.
 """
 
 bl_info = {
     "name":     "NIMBY Visualizer",
-    "blender":  (3, 0, 0),
+    "blender":  (3, 2, 0),   # FLOAT_COLOR color_attributes requires Blender 3.2+
     "category": "Interface",
 }
 
@@ -25,9 +36,17 @@ import traceback
 try:
     import websocket
 except ImportError:
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "websocket-client"])
-    import websocket
+    import sys, site
+    user_site = site.getusersitepackages()
+    if user_site not in sys.path:
+        sys.path.append(user_site)
+    try:
+        import websocket
+    except ImportError:
+        import subprocess, ensurepip
+        ensurepip.bootstrap()
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "websocket-client"])
+        import websocket
 
 websocket.enableTrace(False)
 
@@ -35,21 +54,37 @@ websocket.enableTrace(False)
 # Constants
 # ============================================================
 
-_GREY            = (0.75, 0.75, 0.75)   # default dwelling colour
-_LANDSCAPE_COLOR = (0.04, 0.24, 0.06)   # dark green ground plane
+_GREY            = (0.75, 0.75, 0.75)
+_LANDSCAPE_COLOR = (0.04, 0.24, 0.06)
+
+_NH_OBJ_PREFIX  = "NIMBY_NH_"
+_SHARED_MAT_NAME = "NIMBY_DwellingMat"
+
+# Template cube: 0.9 × 0.9 × 1.0 units, centred at origin.
+# 8 vertices, 6 quad faces (24 loops total per dwelling).
+_CUBE_VERTS = [
+    (-0.45, -0.45, -0.5), ( 0.45, -0.45, -0.5),
+    ( 0.45,  0.45, -0.5), (-0.45,  0.45, -0.5),
+    (-0.45, -0.45,  0.5), ( 0.45, -0.45,  0.5),
+    ( 0.45,  0.45,  0.5), (-0.45,  0.45,  0.5),
+]
+_CUBE_FACES = [
+    (0, 1, 2, 3), (4, 5, 6, 7),
+    (0, 1, 5, 4), (2, 3, 7, 6),
+    (0, 3, 7, 4), (1, 2, 6, 5),
+]
+_LOOPS_PER_DWELLING = len(_CUBE_FACES) * 4   # 24
 
 # ============================================================
-# Global state  (module-level; survives operator re-runs)
+# Global state
 # ============================================================
 
 _msg_queue: queue.Queue = queue.Queue()
 _ws: "websocket.WebSocketApp | None" = None
 _ws_thread: "threading.Thread | None" = None
 
-# Whether the colour scheme is active; False → all dwellings render as _GREY
 _scheme_enabled: bool = False
 
-# Colour scheme — kept in sync with Blender properties and Julia messages
 _scheme: dict = {
     "attribute":  "budget",
     "min_value":  0.0,
@@ -59,22 +94,19 @@ _scheme: dict = {
     "log_scale":  False,
 }
 
-# Neighbourhood side length (k) reported by Julia.
 _neighborhood_k: int = 8
-# City dimensions in neighbourhood units; used to centre geometry around origin.
 _city_nx: int = 0
 _city_ny: int = 0
 _center_x: float = 0.0
 _center_y: float = 0.0
 
-# Instancing object/material name prefixes
-_POINTS_OBJ_PREFIX = "NIMBY_DwellingPoints_"
-_PROTO_OBJ_PREFIX = "NIMBY_DwellingProto_"
-_MAT_PREFIX = "NIMBY_Dwelling_Mat_"
-
-# dwelling_id → {"budget": float, "x": int, "y": int, "floor": int, "nh_id": int}
+# dwelling_id → {"budget", "x", "y", "floor", "nh_id", "mesh_idx"}
+# mesh_idx is the 0-based position of this dwelling within its neighbourhood's
+# mesh — used to compute its loop range: [mesh_idx*24, mesh_idx*24+24).
 _dwellings: dict = {}
-_group_point_coords: dict = {}
+
+# nh_id → [d_id, d_id, ...] insertion-order list; index = mesh_idx
+_nh_dwelling_ids: dict = {}
 
 # ============================================================
 # Colour helpers
@@ -86,7 +118,6 @@ def _lerp(t: float, lo: list, hi: list) -> tuple:
 
 
 def _scheme_value(d_id: int) -> float:
-    """Return the raw numeric value driving the colour for dwelling d_id."""
     entry = _dwellings.get(d_id)
     if entry is None:
         return 0.0
@@ -97,7 +128,6 @@ def _scheme_value(d_id: int) -> float:
         x, y = entry["x"], entry["y"]
         return float(sum(1 for e in _dwellings.values() if e["x"] == x and e["y"] == y))
     elif attr == "density":
-        # Mean building height inside the k×k neighbourhood block
         x, y, k = entry["x"], entry["y"], max(1, int(_neighborhood_k))
         ox, oy = (x // k) * k, (y // k) * k
         heights = {}
@@ -110,7 +140,6 @@ def _scheme_value(d_id: int) -> float:
 
 
 def _map_to_color(value: float) -> tuple:
-    """Map a raw value through the colour scheme gradient."""
     lo, hi = _scheme["min_value"], _scheme["max_value"]
     v = float(value)
     if _scheme["log_scale"] and v > 0 and lo > 0 and hi > lo:
@@ -120,13 +149,12 @@ def _map_to_color(value: float) -> tuple:
 
 
 def _resolve_color(d_id: int) -> tuple:
-    """Return the display colour for a dwelling — grey when scheme is off."""
     if not _scheme_enabled:
         return _GREY
     return _map_to_color(_scheme_value(d_id))
 
 # ============================================================
-# Scene helpers  (must be called from the main thread)
+# Scene helpers
 # ============================================================
 
 def _collection(name: str = "Dwellings") -> bpy.types.Collection:
@@ -136,124 +164,126 @@ def _collection(name: str = "Dwellings") -> bpy.types.Collection:
     return bpy.data.collections[name]
 
 
-def _make_material(name: str, rgb: tuple) -> bpy.types.Material:
-    mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
-    mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    if bsdf:
-        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-        bsdf.inputs["Roughness"].default_value  = 0.55
-    return mat
-
-
-def _set_material_color(mat: bpy.types.Material, rgb: tuple):
-    if mat and mat.node_tree:
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
-        if bsdf:
-            bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-
-
 def _neighborhood_id(x: int, y: int) -> int:
-    k = max(1, int(_neighborhood_k))
+    k  = max(1, int(_neighborhood_k))
     nx = max(1, int(_city_nx))
     return (y // k) * nx + (x // k)
 
+# ============================================================
+# Shared material — reads display_color from mesh geometry
+# ============================================================
 
-def _neighborhood_grey(nh_id: int) -> tuple:
-    # 7 grey levels, repeated across neighborhoods.
-    level = 0.35 + 0.08 * (nh_id % 7)
-    return (level, level, level)
+def _get_dwelling_material() -> bpy.types.Material:
+    """
+    One shared Principled BSDF material used by every neighbourhood mesh.
+    Reads the 'display_color' FLOAT_COLOR CORNER attribute directly from the
+    mesh geometry (attribute_type GEOMETRY), giving each dwelling cube its
+    own colour without needing per-object materials or instancing tricks.
+    """
+    mat = bpy.data.materials.get(_SHARED_MAT_NAME)
+    if mat is not None:
+        return mat
+
+    mat = bpy.data.materials.new(_SHARED_MAT_NAME)
+    mat.use_nodes = True
+    ng = mat.node_tree
+    ng.nodes.clear()
+
+    out  = ng.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = ng.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = 0.55
+
+    attr = ng.nodes.new("ShaderNodeAttribute")
+    attr.attribute_name = "display_color"
+    # attribute_type defaults to "GEOMETRY" — reads from the mesh's own
+    # per-face-corner attribute data, which is what we populate below.
+
+    ng.links.new(attr.outputs["Color"], bsdf.inputs["Base Color"])
+    ng.links.new(bsdf.outputs["BSDF"],  out.inputs["Surface"])
+    return mat
+
+# ============================================================
+# Per-neighbourhood mesh objects
+# ============================================================
+
+def _ensure_nh_obj(nh_id: int) -> bpy.types.Object:
+    """
+    Return (creating if needed) the mesh object for neighbourhood nh_id.
+    The mesh directly contains cube geometry; geometry and colour attributes
+    are rebuilt by _rebuild_nh_mesh whenever dwellings are added.
+    """
+    col  = _collection()
+    name = f"{_NH_OBJ_PREFIX}{nh_id}"
+    obj  = bpy.data.objects.get(name)
+    if obj is None:
+        mesh = bpy.data.meshes.new(f"{name}_Mesh")
+        mesh.materials.append(_get_dwelling_material())
+        obj = bpy.data.objects.new(name, mesh)
+        col.objects.link(obj)
+    return obj
 
 
-def _create_cube_mesh(name: str) -> bpy.types.Mesh:
-    verts = [
-        (-0.45, -0.45, -0.5), (0.45, -0.45, -0.5),
-        (0.45, 0.45, -0.5), (-0.45, 0.45, -0.5),
-        (-0.45, -0.45, 0.5), (0.45, -0.45, 0.5),
-        (0.45, 0.45, 0.5), (-0.45, 0.45, 0.5),
-    ]
-    faces = [
-        (0, 1, 2, 3), (4, 5, 6, 7),
-        (0, 1, 5, 4), (2, 3, 7, 6),
-        (0, 3, 7, 4), (1, 2, 6, 5),
-    ]
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
+def _rebuild_nh_mesh(nh_id: int):
+    """
+    Rebuild the neighbourhood mesh from scratch using all dwellings currently
+    recorded in _nh_dwelling_ids[nh_id].  Called after any batch of new
+    dwellings arrives for this neighbourhood.
+    """
+    obj   = _ensure_nh_obj(nh_id)
+    d_ids = _nh_dwelling_ids.get(nh_id, [])
+    mesh  = obj.data
+
+    # Build raw geometry lists
+    all_verts = []
+    all_faces = []
+    for i, d_id in enumerate(d_ids):
+        entry = _dwellings[d_id]
+        cx = float(entry["x"]) - _center_x
+        cy = float(entry["y"]) - _center_y
+        cz = float(entry["floor"]) - 0.5
+        v_base = i * 8
+        for vx, vy, vz in _CUBE_VERTS:
+            all_verts.append((cx + vx, cy + vy, cz + vz))
+        for face in _CUBE_FACES:
+            all_faces.append(tuple(v_base + vi for vi in face))
+
+    mesh.clear_geometry()
+    mesh.from_pydata(all_verts, [], all_faces)
     mesh.update()
-    return mesh
 
+    # Ensure material is still assigned (clear_geometry keeps it, but be safe)
+    if len(mesh.materials) == 0:
+        mesh.materials.append(_get_dwelling_material())
 
-def _points_obj_name(nh_id: int) -> str:
-    return f"{_POINTS_OBJ_PREFIX}{nh_id}"
+    # Recreate the colour attribute with the correct loop count.
+    # clear_geometry empties the data layers; remove any stale slot first.
+    ca = mesh.color_attributes.get("display_color")
+    if ca is not None:
+        mesh.color_attributes.remove(ca)
+    color_attr = mesh.color_attributes.new("display_color", "FLOAT_COLOR", "CORNER")
 
+    # Write colours for every dwelling
+    for i, d_id in enumerate(d_ids):
+        color = _resolve_color(d_id)
+        rgba  = (*color, 1.0)
+        base  = i * _LOOPS_PER_DWELLING
+        for li in range(base, base + _LOOPS_PER_DWELLING):
+            color_attr.data[li].color = rgba
 
-def _proto_obj_name(nh_id: int) -> str:
-    return f"{_PROTO_OBJ_PREFIX}{nh_id}"
-
-
-def _mat_name(nh_id: int) -> str:
-    return f"{_MAT_PREFIX}{nh_id}"
-
-
-def _ensure_instancer(nh_id: int) -> bpy.types.Object:
-    col = _collection()
-    points = bpy.data.objects.get(_points_obj_name(nh_id))
-    proto = bpy.data.objects.get(_proto_obj_name(nh_id))
-
-    if points is None:
-        pmesh = bpy.data.meshes.new(f"{_points_obj_name(nh_id)}_Mesh")
-        points = bpy.data.objects.new(_points_obj_name(nh_id), pmesh)
-        col.objects.link(points)
-        points.instance_type = "VERTS"
-        points.show_instancer_for_viewport = False
-        points.show_instancer_for_render = False
-
-    if proto is None:
-        pmesh = _create_cube_mesh(f"{_proto_obj_name(nh_id)}_Mesh")
-        proto = bpy.data.objects.new(_proto_obj_name(nh_id), pmesh)
-        col.objects.link(proto)
-        proto.parent = points
-        proto.location = (0.0, 0.0, 0.0)
-        proto.data.materials.clear()
-        proto.data.materials.append(_make_material(_mat_name(nh_id), _neighborhood_grey(nh_id)))
-
-    if proto.parent != points:
-        proto.parent = points
-    return points
-
-
-def _append_point_coords(nh_id: int, coords: list):
-    if not coords:
-        return
-    points = _ensure_instancer(nh_id)
-    mesh = points.data
-    start = len(mesh.vertices)
-    mesh.vertices.add(len(coords))
-    for i, co in enumerate(coords):
-        mesh.vertices[start + i].co = co
     mesh.update()
-
 
 # ============================================================
 # Landscape
 # ============================================================
 
 def create_landscape(size: float = 500.0):
-    """
-    Place a large flat plane at z = -0.05 so dwellings sit on top.
-    The plane is centred on the Blender world origin (0, 0).
-    Replaces any existing landscape.
-    """
     existing = bpy.data.objects.get("NIMBY_Landscape")
     if existing:
         bpy.data.objects.remove(existing, do_unlink=True)
     if "NIMBY_Landscape_Mat" in bpy.data.materials:
         bpy.data.materials.remove(bpy.data.materials["NIMBY_Landscape_Mat"])
 
-    bpy.ops.mesh.primitive_plane_add(
-        size=size,
-        location=(0.0, 0.0, -0.05),
-    )
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(0.0, 0.0, -0.05))
     obj = bpy.context.active_object
     obj.name = "NIMBY_Landscape"
 
@@ -264,44 +294,58 @@ def create_landscape(size: float = 500.0):
     if bsdf:
         bsdf.inputs["Base Color"].default_value = (*_LANDSCAPE_COLOR, 1.0)
         bsdf.inputs["Roughness"].default_value  = 1.0
-        spec_input = bsdf.inputs.get("Specular") or bsdf.inputs.get("Specular IOR Level")
-        if spec_input is not None:
-            spec_input.default_value = 0.0
+        spec = bsdf.inputs.get("Specular") or bsdf.inputs.get("Specular IOR Level")
+        if spec:
+            spec.default_value = 0.0
 
     obj.data.materials.clear()
     obj.data.materials.append(mat)
     return obj
-
 
 # ============================================================
 # Dwellings
 # ============================================================
 
 def create_dwellings_batch(items: list):
-    buckets = {}
+    """
+    Add new dwellings to the scene.  Each dwelling gets 6 quad faces (8 verts,
+    24 loops) added to its neighbourhood mesh via a full mesh rebuild.  The
+    'display_color' FLOAT_COLOR CORNER attribute is set per-loop so every face
+    of a cube is uniformly coloured by the occupant's budget.
+    """
+    affected: set = set()
+
     for d in items:
         d_id = d["id"]
         if d_id in _dwellings:
             continue
         x, y, floor, budget = d["x"], d["y"], d["floor"], d["budget"]
         nh_id = _neighborhood_id(x, y)
-        co = (float(x) - _center_x, float(y) - _center_y, float(floor) - 0.5)
-        _group_point_coords.setdefault(nh_id, []).append(co)
+
+        ids      = _nh_dwelling_ids.setdefault(nh_id, [])
+        mesh_idx = len(ids)
+        ids.append(d_id)
+
         _dwellings[d_id] = {
-            "budget": budget, "x": x, "y": y, "floor": floor, "nh_id": nh_id,
+            "budget": budget, "x": x, "y": y, "floor": floor,
+            "nh_id": nh_id, "mesh_idx": mesh_idx,
         }
-        buckets.setdefault(nh_id, []).append(co)
-    for nh_id, coords in buckets.items():
-        _append_point_coords(nh_id, coords)
+        affected.add(nh_id)
+
+    for nh_id in affected:
+        _rebuild_nh_mesh(nh_id)
 
 
 def reset_dwellings():
     _dwellings.clear()
-    _group_point_coords.clear()
+    _nh_dwelling_ids.clear()
     for obj in bpy.data.objects:
-        if obj.name.startswith(_POINTS_OBJ_PREFIX) and obj.type == "MESH":
-            obj.data.clear_geometry()
-    recolor_all()
+        if obj.name.startswith(_NH_OBJ_PREFIX) and obj.type == "MESH":
+            mesh = obj.data
+            mesh.clear_geometry()
+            ca = mesh.color_attributes.get("display_color")
+            if ca is not None:
+                mesh.color_attributes.remove(ca)
 
 
 def update_budget(d_id: int, budget: float):
@@ -309,25 +353,44 @@ def update_budget(d_id: int, budget: float):
     if entry is None:
         return
     entry["budget"] = budget
+    mesh_idx = entry.get("mesh_idx", -1)
+    if mesh_idx < 0:
+        return
+    obj = bpy.data.objects.get(f"{_NH_OBJ_PREFIX}{entry['nh_id']}")
+    if obj is None:
+        return
+    color_attr = obj.data.color_attributes.get("display_color")
+    if color_attr is None:
+        return
+    color = _resolve_color(d_id)
+    rgba  = (*color, 1.0)
+    base  = mesh_idx * _LOOPS_PER_DWELLING
+    for li in range(base, base + _LOOPS_PER_DWELLING):
+        color_attr.data[li].color = rgba
+    obj.data.update()
 
 
 def recolor_all():
-    """Recompute and apply neighbourhood material colours."""
-    mats = [m for m in bpy.data.materials if m.name.startswith(_MAT_PREFIX)]
-    if not mats:
-        return
-    if _scheme_enabled and _scheme["attribute"] == "budget" and _dwellings:
-        mean_budget = sum(e["budget"] for e in _dwellings.values()) / len(_dwellings)
-        rgb = _map_to_color(mean_budget)
-        for mat in mats:
-            _set_material_color(mat, rgb)
-        return
-    for mat in mats:
-        try:
-            nh_id = int(mat.name.split(_MAT_PREFIX, 1)[1])
-        except (ValueError, IndexError):
-            nh_id = 0
-        _set_material_color(mat, _neighborhood_grey(nh_id))
+    """Recompute and write display_color for every dwelling."""
+    dirty: set = set()
+    for d_id, entry in _dwellings.items():
+        mesh_idx = entry.get("mesh_idx", -1)
+        if mesh_idx < 0:
+            continue
+        obj = bpy.data.objects.get(f"{_NH_OBJ_PREFIX}{entry['nh_id']}")
+        if obj is None:
+            continue
+        color_attr = obj.data.color_attributes.get("display_color")
+        if color_attr is None:
+            continue
+        color = _resolve_color(d_id)
+        rgba  = (*color, 1.0)
+        base  = mesh_idx * _LOOPS_PER_DWELLING
+        for li in range(base, base + _LOOPS_PER_DWELLING):
+            color_attr.data[li].color = rgba
+        dirty.add(obj.data)
+    for mesh in dirty:
+        mesh.update()
 
 # ============================================================
 # Message dispatch
@@ -338,24 +401,19 @@ def _handle(msg: dict):
     t = msg.get("type")
 
     if t == "city_config":
-        k = msg.get("k")
+        k   = msg.get("k")
         n_x = msg.get("n_x")
         n_y = msg.get("n_y")
         if isinstance(k, int) and k > 0:
             _neighborhood_k = k
             if isinstance(n_x, int) and isinstance(n_y, int) and n_x > 0 and n_y > 0:
-                _city_nx = n_x
-                _city_ny = n_y
-                total_x = n_x * k
-                total_y = n_y * k
-                _center_x = (total_x - 1) / 2.0
-                _center_y = (total_y - 1) / 2.0
+                _city_nx  = n_x
+                _city_ny  = n_y
+                _center_x = (n_x * k - 1) / 2.0
+                _center_y = (n_y * k - 1) / 2.0
             else:
-                # Fallback when full dimensions are unavailable.
                 _center_x = (k - 1) / 2.0
                 _center_y = (k - 1) / 2.0
-            if _scheme_enabled and _scheme.get("attribute") == "density":
-                recolor_all()
 
     elif t == "new_dwellings":
         create_dwellings_batch(msg["dwellings"])
@@ -368,13 +426,12 @@ def _handle(msg: dict):
         reset_dwellings()
 
     elif t == "color_scheme":
-        # A scheme pushed from Julia implicitly enables colour mode
         _scheme.update(msg["scheme"])
         props = bpy.context.scene.nimby_vis
-        props["cs_attribute"] = _scheme["attribute"]
-        props["cs_min"]       = float(_scheme["min_value"])
-        props["cs_max"]       = float(_scheme["max_value"])
-        props["cs_log_scale"] = bool(_scheme["log_scale"])
+        props.cs_attribute = _scheme["attribute"]
+        props.cs_min       = float(_scheme["min_value"])
+        props.cs_max       = float(_scheme["max_value"])
+        props.cs_log_scale = bool(_scheme["log_scale"])
         if not props.cs_enabled:
             props.cs_enabled = True   # triggers _enabled_update → recolor_all
         else:
@@ -413,8 +470,6 @@ def _start_ws(url: str):
     )
     def _runner():
         try:
-            # Some servers/proxies can trip ping/pong timeout logic even when
-            # the socket is otherwise healthy.
             _ws.run_forever()
         except Exception as e:
             print(f"[NIMBY] run_forever crashed: {e!r}")
@@ -446,24 +501,21 @@ class NIMBY_OT_Setup(bpy.types.Operator):
         props = context.scene.nimby_vis
         create_landscape(props.landscape_size)
 
-        # Remove default objects that ship with a new Blender file
         for name in ("Cube", "Light", "Camera"):
             obj = bpy.data.objects.get(name)
             if obj:
                 bpy.data.objects.remove(obj, do_unlink=True)
 
-        # Sun lamp for clean overhead lighting
         bpy.ops.object.light_add(type="SUN", location=(0, 0, 100))
         sun = bpy.context.active_object
         sun.name = "NIMBY_Sun"
-        sun.data.energy  = 3.0
-        sun.data.angle   = math.radians(5)
+        sun.data.energy = 3.0
+        sun.data.angle  = math.radians(5)
 
-        # Camera looking straight down from above the city centre
         bpy.ops.object.camera_add(location=(0.0, 0.0, props.landscape_size * 0.8))
         cam = bpy.context.active_object
         cam.name = "NIMBY_Camera"
-        cam.rotation_euler = (0, 0, 0)   # top-down
+        cam.rotation_euler = (0, 0, 0)
         context.scene.camera = cam
 
         self.report({"INFO"}, f"Scene ready — landscape {props.landscape_size:.0f}×{props.landscape_size:.0f}")
@@ -540,6 +592,20 @@ class NIMBY_OT_Recolor(bpy.types.Operator):
         recolor_all()
         return {"FINISHED"}
 
+
+class NIMBY_OT_Reset(bpy.types.Operator):
+    bl_idname      = "wm.nimby_reset"
+    bl_label       = "Reset"
+    bl_description = "Clear all dwellings in Blender and request a full model reset from Julia"
+    def execute(self, _context):
+        reset_dwellings()
+        if _ws is not None:
+            try:
+                _ws.send(json.dumps({"type": "reset_request"}))
+            except Exception as e:
+                self.report({"WARNING"}, f"Could not send reset to Julia: {e}")
+        return {"FINISHED"}
+
 # ============================================================
 # Properties
 # ============================================================
@@ -565,19 +631,16 @@ def _scheme_update(self, context):
 
 
 class NIMBYVisProps(bpy.types.PropertyGroup):
-    # --- connection ---
     ws_url: bpy.props.StringProperty(
         name="Server URL", default="ws://127.0.0.1:8765",
     )
     poll_interval: bpy.props.FloatProperty(
         name="Poll (s)", default=0.1, min=0.01, max=2.0,
     )
-    # --- scene ---
     landscape_size: bpy.props.FloatProperty(
         name="Landscape size", default=500.0, min=10.0,
         description="Side length of the ground plane in Blender units",
     )
-    # --- colour scheme ---
     cs_enabled: bpy.props.BoolProperty(
         name="Enable colour scheme",
         description="When off, all dwellings render as light grey",
@@ -594,14 +657,10 @@ class NIMBYVisProps(bpy.types.PropertyGroup):
         default="budget",
         update=_scheme_update,
     )
-    cs_min: bpy.props.FloatProperty(
-        name="Min", default=0.0, update=_scheme_update,
-    )
-    cs_max: bpy.props.FloatProperty(
-        name="Max", default=10.0, update=_scheme_update,
-    )
+    cs_min: bpy.props.FloatProperty(name="Min", default=0.0, update=_scheme_update)
+    cs_max: bpy.props.FloatProperty(name="Max", default=10.0, update=_scheme_update)
     cs_color_low: bpy.props.FloatVectorProperty(
-        name="Low colour",  subtype="COLOR", size=3, min=0.0, max=1.0,
+        name="Low colour", subtype="COLOR", size=3, min=0.0, max=1.0,
         default=(0.15, 0.30, 0.85), update=_scheme_update,
     )
     cs_color_high: bpy.props.FloatVectorProperty(
@@ -627,13 +686,11 @@ class NIMBY_PT_Panel(bpy.types.Panel):
         layout = self.layout
         props  = context.scene.nimby_vis
 
-        # Scene setup
         box = layout.box()
         box.label(text="Scene", icon="WORLD")
         box.prop(props, "landscape_size")
         box.operator("wm.nimby_setup", icon="SCENE_DATA")
 
-        # Connection
         box = layout.box()
         box.label(text="Connection", icon="URL")
         box.prop(props, "ws_url")
@@ -642,8 +699,8 @@ class NIMBY_PT_Panel(bpy.types.Panel):
         row.operator("wm.nimby_start", icon="PLAY")
         row.operator("wm.nimby_stop",  icon="PAUSE")
         box.operator("wm.nimby_clear", icon="TRASH")
+        box.operator("wm.nimby_reset", icon="LOOP_BACK")
 
-        # Colour scheme
         box = layout.box()
         box.label(text="Colour Scheme", icon="MATERIAL")
         box.prop(props, "cs_enabled", toggle=True)
@@ -669,6 +726,7 @@ _classes = [
     NIMBY_OT_Stop,
     NIMBY_OT_Clear,
     NIMBY_OT_Recolor,
+    NIMBY_OT_Reset,
     NIMBY_PT_Panel,
 ]
 

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIMBY ABM</title>
+<style>
+:root {
+    --bg:       #1a1a2e;
+    --panel:    #16213e;
+    --border:   #0f3460;
+    --accent:   #e94560;
+    --green:    #4caf50;
+    --yellow:   #ffc107;
+    --text:     #eaeaea;
+    --muted:    #7a8599;
+    --input-bg: #0d1b2a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 28px;
+    min-height: 100vh;
+}
+h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 6px; }
+.subtitle { font-size: 0.8rem; color: var(--muted); margin-bottom: 24px; }
+h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px; }
+
+.layout { display: grid; grid-template-columns: 290px 1fr; gap: 20px; max-width: 1020px; }
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+/* Status */
+.status-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; font-size: 0.82rem; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+.dot.connected { background: var(--green); }
+.dot.running    { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* Form */
+.field { margin-bottom: 11px; }
+label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+input[type=number] {
+    width: 100%; padding: 7px 10px;
+    background: var(--input-bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 0.88rem;
+    transition: border-color 0.15s;
+}
+input[type=number]:focus { outline: none; border-color: var(--accent); }
+
+/* Buttons */
+.buttons { display: flex; gap: 8px; margin-top: 18px; }
+button {
+    flex: 1; padding: 9px 0; border: none; border-radius: 7px;
+    font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+}
+button:active:not(:disabled) { transform: scale(0.97); }
+button:disabled { opacity: 0.3; cursor: not-allowed; }
+#btn-start { background: var(--green);  color: #111; }
+#btn-stop  { background: var(--yellow); color: #111; }
+#btn-reset { background: var(--accent); color: #fff; }
+
+/* Stats */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+}
+.stat {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+.stat-label {
+    font-size: 0.68rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.stat-value {
+    font-size: 1.45rem; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/* Log */
+.log {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.76rem;
+    color: var(--muted);
+    height: 160px;
+    overflow-y: auto;
+}
+.log .entry { padding: 2px 0; border-bottom: 1px solid #1e2a3a; }
+.log .entry:last-child { border-bottom: none; }
+.log .entry.info { color: var(--text); }
+.log .entry.warn { color: var(--yellow); }
+
+.url-hint { font-size: 0.72rem; color: var(--muted); margin-top: 8px; font-family: monospace; }
+</style>
+</head>
+<body>
+
+<h1>NIMBY ABM</h1>
+<p class="subtitle">Browser control panel — Julia model on ws://127.0.0.1:8766</p>
+
+<div class="status-bar">
+    <div class="dot" id="dot"></div>
+    <span id="status-text">Connecting…</span>
+</div>
+
+<div class="layout">
+
+    <!-- Left column: parameters + buttons -->
+    <div>
+        <div class="panel">
+            <h2>Parameters</h2>
+            <div class="field">
+                <label>Steps</label>
+                <input type="number" id="p-n_steps" value="1000" min="1">
+            </div>
+            <div class="field">
+                <label>Search candidates (n_search)</label>
+                <input type="number" id="p-n_search" value="5" min="1">
+            </div>
+            <div class="field">
+                <label>Agent inflow per step</label>
+                <input type="number" id="p-agents_inflow" value="100" min="0">
+            </div>
+            <div class="field">
+                <label>Existing mover share (0–1)</label>
+                <input type="number" id="p-existing_move_share" value="0.1" min="0" max="1" step="0.01">
+            </div>
+            <div class="field">
+                <label>Blender update every N steps (0 = end)</label>
+                <input type="number" id="p-blender_update_every" value="0" min="0">
+            </div>
+            <div class="field">
+                <label>Land-use eval every N steps</label>
+                <input type="number" id="p-land_use_eval_every" value="10" min="0">
+            </div>
+            <div class="field">
+                <label>Land-use eval horizon (steps)</label>
+                <input type="number" id="p-land_use_eval_horizon" value="10" min="1">
+            </div>
+            <div class="field">
+                <label>Step delay (s)</label>
+                <input type="number" id="p-step_delay" value="0.1" min="0" step="0.01">
+            </div>
+
+            <div class="buttons">
+                <button id="btn-start" onclick="sendStart()" disabled>Start</button>
+                <button id="btn-stop"  onclick="sendCmd('stop')"  disabled>Stop</button>
+                <button id="btn-reset" onclick="sendCmd('reset')" disabled>Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right column: stats + log -->
+    <div>
+        <div class="panel">
+            <h2>Live Stats</h2>
+            <div class="stats-grid">
+                <div class="stat"><div class="stat-label">Step</div>      <div class="stat-value" id="s-step">—</div></div>
+                <div class="stat"><div class="stat-label">Agents</div>    <div class="stat-value" id="s-agents">—</div></div>
+                <div class="stat"><div class="stat-label">Housed</div>    <div class="stat-value" id="s-housed">—</div></div>
+                <div class="stat"><div class="stat-label">Dwellings</div> <div class="stat-value" id="s-dwellings">—</div></div>
+                <div class="stat"><div class="stat-label">Vacant</div>    <div class="stat-value" id="s-vacant">—</div></div>
+                <div class="stat"><div class="stat-label">Mean height</div><div class="stat-value" id="s-h_mean">—</div></div>
+                <div class="stat"><div class="stat-label">Max height</div> <div class="stat-value" id="s-h_max">—</div></div>
+                <div class="stat"><div class="stat-label">Step time</div>  <div class="stat-value" id="s-elapsed">—</div></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Log</h2>
+            <div class="log" id="log"></div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+const WS_URL = "ws://127.0.0.1:8766";
+let ws = null;
+let isRunning = false;
+
+// ── Logging ───────────────────────────────────────────────
+function log(msg, cls = "") {
+    const el  = document.getElementById("log");
+    const row = document.createElement("div");
+    row.className = "entry" + (cls ? " " + cls : "");
+    const t = new Date().toLocaleTimeString("en-GB", { hour12: false });
+    row.textContent = t + "  " + msg;
+    el.appendChild(row);
+    el.scrollTop = el.scrollHeight;
+}
+
+// ── UI state ──────────────────────────────────────────────
+function setStatus(connected, running) {
+    isRunning = running;
+    const dot  = document.getElementById("dot");
+    const text = document.getElementById("status-text");
+    dot.className  = "dot" + (connected ? (running ? " running" : " connected") : "");
+    text.textContent = !connected ? "Disconnected"
+                     : running    ? "Running"
+                                  : "Connected — idle";
+    document.getElementById("btn-start").disabled = !connected || running;
+    document.getElementById("btn-stop").disabled  = !connected || !running;
+    document.getElementById("btn-reset").disabled = !connected;
+}
+
+function setStat(id, val) {
+    document.getElementById("s-" + id).textContent = val;
+}
+
+// ── WebSocket ─────────────────────────────────────────────
+function connect() {
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+        log("Connected to Julia model", "info");
+        setStatus(true, isRunning);
+    };
+
+    ws.onclose = () => {
+        log("Disconnected — retrying in 3 s…", "warn");
+        setStatus(false, false);
+        ws = null;
+        setTimeout(connect, 3000);
+    };
+
+    ws.onerror = () => log("WebSocket error", "warn");
+
+    ws.onmessage = (e) => {
+        let msg;
+        try { msg = JSON.parse(e.data); } catch { return; }
+
+        if (msg.type === "running") {
+            setStatus(true, msg.value);
+            if (!msg.value) log("Run finished");
+
+        } else if (msg.type === "stats") {
+            setStat("step",      msg.step);
+            setStat("agents",    msg.agents.toLocaleString());
+            setStat("housed",    msg.housed.toLocaleString());
+            setStat("dwellings", msg.dwellings.toLocaleString());
+            setStat("vacant",    msg.vacant.toLocaleString());
+            setStat("h_mean",    msg.h_mean);
+            setStat("h_max",     msg.h_max);
+            setStat("elapsed",   msg.elapsed + "s");
+        }
+    };
+}
+
+// ── Commands ──────────────────────────────────────────────
+function sendCmd(type, extra = {}) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type, ...extra }));
+}
+
+function num(id) { return parseFloat(document.getElementById(id).value); }
+
+function sendStart() {
+    sendCmd("start", {
+        n_steps:               num("p-n_steps"),
+        n_search:              num("p-n_search"),
+        agents_inflow:         num("p-agents_inflow"),
+        existing_move_share:   num("p-existing_move_share"),
+        blender_update_every:  num("p-blender_update_every"),
+        land_use_eval_every:   num("p-land_use_eval_every"),
+        land_use_eval_horizon: num("p-land_use_eval_horizon"),
+        step_delay:            num("p-step_delay"),
+    });
+    log("Start sent (" + num("p-n_steps") + " steps)", "info");
+}
+
+// ── Boot ──────────────────────────────────────────────────
+setStatus(false, false);
+connect();
+</script>
+</body>
+</html>

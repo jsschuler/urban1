@@ -34,12 +34,13 @@ Any extra keyword arguments are forwarded to generate_agents! (e.g.
 pref_density_μ, budget_μ, budget_σ, etc.).
 """
 function init_model(;
-    n_x     ::Int = 10,
-    n_y     ::Int = 10,
-    k       ::Int = 8,
-    n_agents::Int = 0,
-    seed    ::Int = 42,
-    ws_port ::Int = 8765,
+    n_x      ::Int = 10,
+    n_y      ::Int = 10,
+    k        ::Int = 8,
+    n_agents ::Int = 0,
+    seed     ::Int = 42,
+    ws_port  ::Int = 8765,
+    ctrl_port::Int = 8766,
     kwargs...
 )
     rng = MersenneTwister(seed)
@@ -51,14 +52,16 @@ function init_model(;
     city     = generate_city(n_x, n_y; k=k)
     generate_agents!(city, n_agents; rng=rng, kwargs...)
 
-    # city_ref lets listen! push a full_sync! to any client that (re)connects
     city_ref = Ref{Union{Nothing,City}}(city)
+    rng_ref  = Ref{AbstractRNG}(rng)
     vis      = Visualizer()
     listen!(vis, city_ref; port=ws_port)
+    listen_control!(vis; port=ctrl_port)
+    _ctrl_loop!(vis, city_ref, rng_ref)
 
     println("Blender → connect to  ws://127.0.0.1:$(ws_port)")
-    println("Run 'Setup Scene' in the NIMBY panel, then press Enter to start.\n")
-    readline()
+    println("Browser → open index.html  (control server: ws://127.0.0.1:$(ctrl_port))")
+    println("Ready.\n")
 
     return city, vis, rng
 end
@@ -119,6 +122,8 @@ function run_steps!(
 
     last_sent_step = 0
     for t in 1:n_steps
+        vis.stop_flag[] && break
+
         if land_use_eval_every > 0 && t > 1 && (t - 1) % land_use_eval_every == 0
             evaluate_land_use_laws!(
                 city, rng;
@@ -150,6 +155,7 @@ function run_steps!(
             last_sent_step = t
         end
         _print_stats(t, city, elapsed)
+        send_ctrl_stats!(vis, t, city, elapsed)
 
         step_delay > 0.0 && sleep(step_delay)
     end
@@ -170,6 +176,82 @@ function _print_stats(t::Int, city::City, elapsed::Float64)
     n_empty_buildings = length(city.buildings) - length(occupied)
 
     @printf "step %4d | agents %6d | housed %6d | dwellings %6d | vacant %5d | mean h %5.2f | max h %3d | empty_bld %5d | %5.2fs\n" t n_agents n_housed n_dw n_vacant h_mean h_max n_empty_buildings elapsed
+end
+
+function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
+    isempty(vis.ctrl_clients) && return
+    n_housed = count(a -> a.dwelling_id != 0, city.agents)
+    n_vacant = count(d -> d.occupant_id == 0, city.dwellings)
+    occupied = filter(b -> height(b) > 0, city.buildings)
+    h_mean   = isempty(occupied) ? 0.0 : mean(height.(occupied))
+    h_max    = isempty(occupied) ? 0   : maximum(height.(occupied))
+    _broadcast_ctrl!(vis, Dict(
+        "type"      => "stats",
+        "step"      => t,
+        "agents"    => length(city.agents),
+        "housed"    => n_housed,
+        "dwellings" => length(city.dwellings),
+        "vacant"    => n_vacant,
+        "h_mean"    => round(h_mean; digits=2),
+        "h_max"     => h_max,
+        "elapsed"   => round(elapsed; digits=3),
+    ))
+end
+
+"""
+    _ctrl_loop!(vis, city_ref, rng_ref)
+
+Background task that processes commands from `vis.incoming` (sent by both the
+Blender add-on and the browser control UI).
+
+Commands handled:
+  start        — launch run_steps! as an async task using parameters from the message
+  stop         — set stop_flag to interrupt a running batch
+  reset / reset_request — stop + reset model + sync Blender
+"""
+function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
+    run_task = Ref{Union{Nothing,Task}}(nothing)
+    _is_running() = (t = run_task[]; t !== nothing && !istaskdone(t))
+
+    @async while true
+        cmd = take!(vis.incoming)
+        t   = get(cmd, "type", "")
+
+        if t == "start"
+            _is_running() && continue
+            vis.stop_flag[] = false
+            _broadcast_ctrl!(vis, Dict("type" => "running", "value" => true))
+            city = city_ref[]
+            rng  = rng_ref[]
+            run_task[] = @async begin
+                try
+                    run_steps!(city, vis, rng;
+                        require_authorization  = false,
+                        n_steps                = get(cmd, "n_steps",               1000) |> Int,
+                        n_search               = get(cmd, "n_search",              5)    |> Int,
+                        agents_inflow          = get(cmd, "agents_inflow",         100)  |> Int,
+                        existing_move_share    = get(cmd, "existing_move_share",   0.1)  |> Float64,
+                        blender_update_every   = get(cmd, "blender_update_every",  0)    |> Int,
+                        land_use_eval_every    = get(cmd, "land_use_eval_every",   10)   |> Int,
+                        land_use_eval_horizon  = get(cmd, "land_use_eval_horizon", 10)   |> Int,
+                        step_delay             = get(cmd, "step_delay",            0.1)  |> Float64,
+                    )
+                finally
+                    vis.stop_flag[] = true
+                    _broadcast_ctrl!(vis, Dict("type" => "running", "value" => false))
+                end
+            end
+
+        elseif t == "stop"
+            vis.stop_flag[] = true
+
+        elseif t in ("reset", "reset_request")
+            vis.stop_flag[] = true
+            sleep(0.3)   # let the current step finish before clearing state
+            reset_model!(city_ref[], vis, rng_ref[])
+            _broadcast_ctrl!(vis, Dict("type" => "running", "value" => false))
+        end
+    end
 end
 
 """
@@ -239,9 +321,10 @@ function run!(;
     require_authorization::Bool = true,
     seed      ::Int     = 42,
     ws_port   ::Int     = 8765,
+    ctrl_port ::Int     = 8766,
     kwargs...
 )
-    city, vis, rng = init_model(; n_x, n_y, k, n_agents, seed, ws_port, kwargs...)
+    city, vis, rng = init_model(; n_x, n_y, k, n_agents, seed, ws_port, ctrl_port, kwargs...)
     run_steps!(
         city, vis, rng;
         n_steps, n_search, agents_inflow, existing_move_share, blender_update_every,
@@ -255,5 +338,17 @@ end
 # ============================================================
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    run!()
+    city, vis, rng = init_model()
+    if isinteractive()
+        # REPL keeps the process alive and yields to async tasks while idle.
+        println("REPL ready. Call run_steps!(city, vis, rng; ...) to step manually.")
+    else
+        # Non-interactive: block the main task so async servers stay alive.
+        # All control comes from the browser (index.html).
+        println("Running in headless mode. Control via browser at index.html.")
+        println("Press Ctrl+C to exit.")
+        while true
+            sleep(60)
+        end
+    end
 end
