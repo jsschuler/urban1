@@ -118,6 +118,11 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
     grid-template-columns: 1fr 1fr 1fr;
     gap: 10px;
 }
+.hist-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
 .hist-label {
     font-size: 0.68rem; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.07em;
@@ -177,6 +182,10 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
                 <label>Step delay (s)</label>
                 <input type="number" id="p-step_delay" value="0.1" min="0" step="0.01">
             </div>
+            <div class="field">
+                <label>City side √neighborhoods (e.g. 10 → 10×10)</label>
+                <input type="number" id="p-n_neighborhoods_sqrt" value="10" min="1" max="30">
+            </div>
 
             <div class="buttons">
                 <button id="btn-start" onclick="sendStart()" disabled>Start</button>
@@ -199,35 +208,58 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
                 <div class="stat"><div class="stat-label">Mean height</div><div class="stat-value" id="s-h_mean">—</div></div>
                 <div class="stat"><div class="stat-label">Max height</div> <div class="stat-value" id="s-h_max">—</div></div>
                 <div class="stat"><div class="stat-label">Step time</div>  <div class="stat-value" id="s-elapsed">—</div></div>
+                <div class="stat"><div class="stat-label">Laws %</div>     <div class="stat-value" id="s-pct-laws">—</div></div>
             </div>
         </div>
 
         <div class="panel">
-            <h2>Utility Distributions <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(housed agents, 20 bins)</span></h2>
+            <h2>Realized Utility <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(housed agents · utility ∈ [0,1] · 20 bins)</span></h2>
             <div class="hist-grid">
                 <div>
-                    <div class="hist-label">Overall (copula)</div>
+                    <div class="hist-label">Overall utility (copula)</div>
                     <canvas id="hist-overall"   class="hist-canvas"></canvas>
                 </div>
                 <div>
-                    <div class="hist-label">Proximity</div>
+                    <div class="hist-label">Proximity utility</div>
                     <canvas id="hist-proximity" class="hist-canvas"></canvas>
                 </div>
                 <div>
-                    <div class="hist-label">Nbhd median</div>
+                    <div class="hist-label">Nbhd density utility</div>
                     <canvas id="hist-nh"        class="hist-canvas"></canvas>
                 </div>
                 <div>
-                    <div class="hist-label">Nbhd max</div>
+                    <div class="hist-label">Nbhd max height utility</div>
                     <canvas id="hist-nh-max"    class="hist-canvas"></canvas>
                 </div>
                 <div>
-                    <div class="hist-label">Nbhd min</div>
+                    <div class="hist-label">Nbhd min height utility</div>
                     <canvas id="hist-nh-min"    class="hist-canvas"></canvas>
                 </div>
                 <div>
-                    <div class="hist-label">Building height</div>
+                    <div class="hist-label">Building height utility</div>
                     <canvas id="hist-bldg"      class="hist-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Preferred Values <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(all agents · back-transformed modal · floors · 20 bins · 0–20)</span></h2>
+            <div class="hist-grid-4">
+                <div>
+                    <div class="hist-label">Pref nbhd density</div>
+                    <canvas id="modal-density" class="hist-canvas"></canvas>
+                </div>
+                <div>
+                    <div class="hist-label">Pref nbhd max height</div>
+                    <canvas id="modal-nh-max"  class="hist-canvas"></canvas>
+                </div>
+                <div>
+                    <div class="hist-label">Pref nbhd min height</div>
+                    <canvas id="modal-nh-min"  class="hist-canvas"></canvas>
+                </div>
+                <div>
+                    <div class="hist-label">Pref building height</div>
+                    <canvas id="modal-bldg"    class="hist-canvas"></canvas>
                 </div>
             </div>
         </div>
@@ -312,27 +344,39 @@ function connect() {
             setStat("h_mean",    msg.h_mean);
             setStat("h_max",     msg.h_max);
             setStat("elapsed",   msg.elapsed + "s");
+            setStat("pct-laws",  msg.pct_laws + "%");
             drawHist("hist-overall",   msg.hist_overall);
             drawHist("hist-proximity", msg.hist_proximity);
             drawHist("hist-nh",        msg.hist_nh);
             drawHist("hist-nh-max",    msg.hist_nh_max);
             drawHist("hist-nh-min",    msg.hist_nh_min);
             drawHist("hist-bldg",      msg.hist_bldg);
+            const fl = ["0", "10", "20"];
+            drawHist("modal-density", msg.modal_density, fl);
+            drawHist("modal-nh-max",  msg.modal_nh_max,  fl);
+            drawHist("modal-nh-min",  msg.modal_nh_min,  fl);
+            drawHist("modal-bldg",    msg.modal_bldg,    fl);
         }
     };
 }
 
 // ── Histograms ────────────────────────────────────────────
 const HIST_COLORS = {
+    // Realized utility (utility space 0–1)
     "hist-overall":   "#4caf50",
     "hist-proximity": "#42a5f5",
     "hist-nh":        "#26c6da",
     "hist-nh-max":    "#00acc1",
     "hist-nh-min":    "#0097a7",
     "hist-bldg":      "#ffa726",
+    // Preferred values (dimension space, floors)
+    "modal-density":  "#ab47bc",
+    "modal-nh-max":   "#9c27b0",
+    "modal-nh-min":   "#7b1fa2",
+    "modal-bldg":     "#ff7043",
 };
 
-function drawHist(id, bins) {
+function drawHist(id, bins, xLabels = ["0", "0.5", "1"]) {
     const canvas = document.getElementById(id);
     if (!canvas || !bins) return;
     const W = canvas.offsetWidth;
@@ -369,9 +413,9 @@ function drawHist(id, bins) {
     ctx.fillStyle = "#7a8599";
     ctx.font = "9px monospace";
     ctx.textBaseline = "bottom";
-    ctx.textAlign = "left";   ctx.fillText("0",   pl,       H);
-    ctx.textAlign = "center"; ctx.fillText("0.5", W / 2,    H);
-    ctx.textAlign = "right";  ctx.fillText("1",   W - pr,   H);
+    ctx.textAlign = "left";   ctx.fillText(xLabels[0], pl,     H);
+    ctx.textAlign = "center"; ctx.fillText(xLabels[1], W / 2,  H);
+    ctx.textAlign = "right";  ctx.fillText(xLabels[2], W - pr, H);
 }
 
 // ── Commands ──────────────────────────────────────────────
@@ -392,6 +436,7 @@ function sendStart() {
         land_use_eval_every:   num("p-land_use_eval_every"),
         land_use_eval_horizon: num("p-land_use_eval_horizon"),
         step_delay:            num("p-step_delay"),
+        n_neighborhoods_sqrt:  num("p-n_neighborhoods_sqrt"),
     });
     log("Start sent (" + num("p-n_steps") + " steps)", "info");
 }

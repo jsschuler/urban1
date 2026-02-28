@@ -234,3 +234,36 @@ No code changes. Key model behaviour clarified:
 - Laws are **conditional**: an active `LandUseLaw` evaluates a depth-2 tree against live observables (`median_height`, `max_height`, `min_height`, `vacancy_rate`). A neighbourhood with an active law may still permit building at current conditions.
 - Once unhoused, an agent is **permanently stuck** unless a vacancy becomes available: in subsequent steps they are processed as movers with `build_if_unhoused=false` and can never build their way out.
 - The unhoused count is therefore monotonically non-decreasing once laws start passing.
+
+### 2026-02-27 (session 5)
+
+#### `generation.jl` — tighten σ defaults
+- `σ_neighborhood_μ`: `0.5` → `-0.5` (log-scale; median σ drops from ≈1.65 to ≈0.61 in %-deviation units) in both `generate_agents!` and `add_agents!`
+- `σ_building_μ`: same change
+- Effect: agents are now meaningfully sensitive to deviations from their preferred density/height; a 100% deviation gives utility ≈0.26 instead of ≈0.83
+- Proximity (`proximity_scale`) left unchanged — monotone decay peaking at dist=0 is intentional
+
+#### `structs.jl` — proximity field unchanged
+- An earlier edit that replaced `proximity_scale` with `pref_proximity + σ_proximity` was reverted; proximity stays as exponential decay
+
+#### Utility histogram design clarified
+
+- **Realized utility histograms**: computed at each housed agent's current dwelling — show the distribution of achieved utility per dimension
+- **Why proximity spreads**: heterogeneous `proximity_scale` (log-normal) + agents can't always live at their job → natural spread across [0,1]
+- **Why density/height peaked at 1**: agents freely sort into matching neighbourhoods and build to match preferences → sorting drives housed agents near their bliss point
+- **Modal utility**: the mode of each marginal utility function (in dimension/condition space) back-transforms to the agent's preferred value — i.e., `pref_neighborhood_density`, `pref_building_height`, etc. Modal utility in utility space is trivially 1 for all agents. The useful representation is histograms of preferred values in floor units.
+
+#### `main.jl`
+- Added `_MODAL_MAX_HEIGHT = 20.0f0` constant
+- Added `_hist_bin_dim!(h, val, n)` — bins a floor value into [0, 20] range
+- Added `_modal_histograms(city)` — histograms of `pref_neighborhood_density`, `pref_neighborhood_max_height`, `pref_neighborhood_min_height`, `pref_building_height` over **all** agents (not just housed), in floor units
+- Fixed early-return bug in `_utility_histograms`: was missing `nh_max` and `nh_min` fields in the zero-agent fast path
+- `send_ctrl_stats!`: now also broadcasts `pct_laws` (% of neighbourhoods with an active law) and four modal histogram arrays (`modal_density`, `modal_nh_max`, `modal_nh_min`, `modal_bldg`)
+- `_ctrl_loop!` start handler: if `n_neighborhoods_sqrt` in the start command differs from the current city's neighbourhood count, rebuilds the city from scratch (`generate_city(n_sqrt, n_sqrt; k=cur.k)`) and syncs Blender before starting the run
+
+#### `index.html`
+- Added **Laws %** stat tile (`s-pct-laws`)
+- Added **City side √neighborhoods** parameter field (`p-n_neighborhoods_sqrt`, default 10 = 10×10 city); sent in `sendStart()`
+- Renamed histogram panel to **"Realized Utility"** (utility ∈ [0,1]); updated all 6 canvas labels to end in "utility" for clarity
+- Added separate **"Preferred Values"** panel (4-column grid, purple/orange colour scheme) showing `modal-density`, `modal-nh-max`, `modal-nh-min`, `modal-bldg` with x-axis labelled 0 / 10 / 20 floors
+- `drawHist(id, bins, xLabels)` now accepts an optional `xLabels` array (default `["0","0.5","1"]`) so modal histograms can display floor labels

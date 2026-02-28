@@ -32,6 +32,7 @@ import math
 import queue
 import threading
 import traceback
+import numpy as np
 
 try:
     import websocket
@@ -75,6 +76,12 @@ _CUBE_FACES = [
 ]
 _LOOPS_PER_DWELLING = len(_CUBE_FACES) * 4   # 24
 
+# Precomputed numpy templates for fast mesh construction
+_CUBE_VERTS_NP   = np.array(_CUBE_VERTS, dtype=np.float32)            # (8, 3)
+_CUBE_LOOP_VERTS = np.array(                                           # (24,)
+    [vi for face in _CUBE_FACES for vi in face], dtype=np.int32
+)
+
 # ============================================================
 # Global state
 # ============================================================
@@ -99,6 +106,11 @@ _city_nx: int = 0
 _city_ny: int = 0
 _center_x: float = 0.0
 _center_y: float = 0.0
+
+# Neighbourhoods queued for a mesh rebuild; processed in the modal timer.
+_pending_rebuild: set = set()
+# Max neighbourhood mesh rebuilds per timer tick — limits freeze duration.
+_MAX_REBUILDS_PER_TICK = 4
 
 # dwelling_id → {"budget", "x", "y", "floor", "nh_id", "mesh_idx"}
 # mesh_idx is the 0-based position of this dwelling within its neighbourhood's
@@ -225,51 +237,67 @@ def _ensure_nh_obj(nh_id: int) -> bpy.types.Object:
 
 def _rebuild_nh_mesh(nh_id: int):
     """
-    Rebuild the neighbourhood mesh from scratch using all dwellings currently
-    recorded in _nh_dwelling_ids[nh_id].  Called after any batch of new
-    dwellings arrives for this neighbourhood.
+    Rebuild the neighbourhood mesh using numpy arrays + foreach_set for speed.
+    Called from the modal timer (capped per tick) rather than inline in
+    create_dwellings_batch, so multiple incoming batches for the same
+    neighbourhood collapse into a single rebuild.
     """
     obj   = _ensure_nh_obj(nh_id)
     d_ids = _nh_dwelling_ids.get(nh_id, [])
     mesh  = obj.data
-
-    # Build raw geometry lists
-    all_verts = []
-    all_faces = []
-    for i, d_id in enumerate(d_ids):
-        entry = _dwellings[d_id]
-        cx = float(entry["x"]) - _center_x
-        cy = float(entry["y"]) - _center_y
-        cz = float(entry["floor"]) - 0.5
-        v_base = i * 8
-        for vx, vy, vz in _CUBE_VERTS:
-            all_verts.append((cx + vx, cy + vy, cz + vz))
-        for face in _CUBE_FACES:
-            all_faces.append(tuple(v_base + vi for vi in face))
+    n     = len(d_ids)
 
     mesh.clear_geometry()
-    mesh.from_pydata(all_verts, [], all_faces)
-    mesh.update()
+    if n == 0:
+        return
 
-    # Ensure material is still assigned (clear_geometry keeps it, but be safe)
+    # ── Geometry ──────────────────────────────────────────────────────────
+    # offsets: (n, 3) — one (cx, cy, cz) per dwelling
+    offsets = np.empty((n, 3), dtype=np.float32)
+    for i, d_id in enumerate(d_ids):
+        e = _dwellings[d_id]
+        offsets[i, 0] = float(e["x"])     - _center_x
+        offsets[i, 1] = float(e["y"])     - _center_y
+        offsets[i, 2] = float(e["floor"]) - 0.5
+
+    # verts: (n*8, 3) via broadcasting — no Python loop over vertices
+    verts = (_CUBE_VERTS_NP[np.newaxis] + offsets[:, np.newaxis]).reshape(n * 8, 3)
+
+    # loop vertex indices: dwelling i shifts all 24 refs by i*8
+    vert_offsets = np.arange(n, dtype=np.int32) * 8          # (n,)
+    loop_verts   = (
+        _CUBE_LOOP_VERTS[np.newaxis] + vert_offsets[:, np.newaxis]
+    ).reshape(n * 24)                                          # (n*24,)
+
+    n_loops = n * 24
+    n_faces = n * 6
+
+    mesh.vertices.add(n * 8)
+    mesh.vertices.foreach_set("co", verts.ravel())
+    mesh.loops.add(n_loops)
+    mesh.loops.foreach_set("vertex_index", loop_verts)
+    mesh.polygons.add(n_faces)
+    mesh.polygons.foreach_set("loop_start", np.arange(0, n_loops, 4, dtype=np.int32))
+    mesh.polygons.foreach_set("loop_total",  np.full(n_faces, 4, dtype=np.int32))
+    mesh.update(calc_edges=True)
+
     if len(mesh.materials) == 0:
         mesh.materials.append(_get_dwelling_material())
 
-    # Recreate the colour attribute with the correct loop count.
-    # clear_geometry empties the data layers; remove any stale slot first.
+    # ── Colour attribute ───────────────────────────────────────────────────
     ca = mesh.color_attributes.get("display_color")
     if ca is not None:
         mesh.color_attributes.remove(ca)
     color_attr = mesh.color_attributes.new("display_color", "FLOAT_COLOR", "CORNER")
 
-    # Write colours for every dwelling
+    # Build flat RGBA array (n*24*4 floats) — one numpy tile per dwelling
+    colors = np.empty(n_loops * 4, dtype=np.float32)
     for i, d_id in enumerate(d_ids):
-        color = _resolve_color(d_id)
-        rgba  = (*color, 1.0)
-        base  = i * _LOOPS_PER_DWELLING
-        for li in range(base, base + _LOOPS_PER_DWELLING):
-            color_attr.data[li].color = rgba
+        c    = _resolve_color(d_id)
+        rgba = np.array([c[0], c[1], c[2], 1.0], dtype=np.float32)
+        colors[i * 96 : (i + 1) * 96] = np.tile(rgba, 24)   # 24 loops × 4 floats
 
+    color_attr.data.foreach_set("color", colors)
     mesh.update()
 
 # ============================================================
@@ -308,13 +336,12 @@ def create_landscape(size: float = 500.0):
 
 def create_dwellings_batch(items: list):
     """
-    Add new dwellings to the scene.  Each dwelling gets 6 quad faces (8 verts,
-    24 loops) added to its neighbourhood mesh via a full mesh rebuild.  The
-    'display_color' FLOAT_COLOR CORNER attribute is set per-loop so every face
-    of a cube is uniformly coloured by the occupant's budget.
+    Register new dwellings in the internal data structures and queue their
+    neighbourhoods for a mesh rebuild.  The actual rebuild is deferred to the
+    modal timer (_pending_rebuild), capped at _MAX_REBUILDS_PER_TICK per tick,
+    so multiple consecutive batches for the same neighbourhood collapse into a
+    single rebuild and never block the UI for more than a few milliseconds.
     """
-    affected: set = set()
-
     for d in items:
         d_id = d["id"]
         if d_id in _dwellings:
@@ -330,15 +357,13 @@ def create_dwellings_batch(items: list):
             "budget": budget, "x": x, "y": y, "floor": floor,
             "nh_id": nh_id, "mesh_idx": mesh_idx,
         }
-        affected.add(nh_id)
-
-    for nh_id in affected:
-        _rebuild_nh_mesh(nh_id)
+        _pending_rebuild.add(nh_id)
 
 
 def reset_dwellings():
     _dwellings.clear()
     _nh_dwelling_ids.clear()
+    _pending_rebuild.clear()
     for obj in bpy.data.objects:
         if obj.name.startswith(_NH_OBJ_PREFIX) and obj.type == "MESH":
             mesh = obj.data
@@ -530,6 +555,7 @@ class NIMBY_OT_Start(bpy.types.Operator):
 
     def modal(self, context, event):
         if event.type == "TIMER":
+            # Drain incoming messages (data updates only — no mesh rebuilds)
             changed = 0
             while changed < 500:
                 try:
@@ -542,7 +568,18 @@ class NIMBY_OT_Start(bpy.types.Operator):
                 except Exception as e:
                     print(f"[NIMBY] handle error: {e!r} | msg={msg}")
                     print(traceback.format_exc())
-            if changed:
+
+            # Rebuild pending neighbourhood meshes, capped per tick to avoid
+            # long freezes.  Remaining entries are processed on the next tick.
+            rebuilt = 0
+            for nh_id in list(_pending_rebuild):
+                if rebuilt >= _MAX_REBUILDS_PER_TICK:
+                    break
+                _rebuild_nh_mesh(nh_id)
+                _pending_rebuild.discard(nh_id)
+                rebuilt += 1
+
+            if changed or rebuilt:
                 for area in context.screen.areas:
                     if area.type == "VIEW_3D":
                         area.tag_redraw()

@@ -172,6 +172,27 @@ end
     h[clamp(floor(Int, u * n) + 1, 1, n)] += 1
 end
 
+const _MODAL_MAX_HEIGHT = 20.0f0
+
+@inline function _hist_bin_dim!(h::Vector{Int}, val::Float32, n::Int)
+    h[clamp(floor(Int, val / _MODAL_MAX_HEIGHT * n) + 1, 1, n)] += 1
+end
+
+"""Histogram of agent preferred values in floor units (all agents, not just housed)."""
+function _modal_histograms(city::City; n_bins::Int = 20)
+    h_density = zeros(Int, n_bins)
+    h_nh_max  = zeros(Int, n_bins)
+    h_nh_min  = zeros(Int, n_bins)
+    h_bldg    = zeros(Int, n_bins)
+    for agent in city.agents
+        _hist_bin_dim!(h_density, agent.pref_neighborhood_density,    n_bins)
+        _hist_bin_dim!(h_nh_max,  agent.pref_neighborhood_max_height,  n_bins)
+        _hist_bin_dim!(h_nh_min,  agent.pref_neighborhood_min_height,  n_bins)
+        _hist_bin_dim!(h_bldg,    agent.pref_building_height,          n_bins)
+    end
+    return (density=h_density, nh_max=h_nh_max, nh_min=h_nh_min, bldg=h_bldg)
+end
+
 """
 Compute per-step utility histograms over all housed agents.
 Returns four n_bins-length Int vectors:
@@ -182,7 +203,7 @@ Returns four n_bins-length Int vectors:
 """
 function _utility_histograms(city::City; n_bins::Int = 20)
     z = zeros(Int, n_bins)
-    any(a -> a.dwelling_id != 0, city.agents) || return (overall=copy(z), proximity=copy(z), nh=copy(z), bldg=copy(z))
+    any(a -> a.dwelling_id != 0, city.agents) || return (overall=copy(z), proximity=copy(z), nh=copy(z), nh_max=copy(z), nh_min=copy(z), bldg=copy(z))
 
     nd_cache    = compute_nd_cache(city)
     h_overall   = zeros(Int, n_bins)
@@ -233,7 +254,10 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
     occupied = filter(b -> height(b) > 0, city.buildings)
     h_mean   = isempty(occupied) ? 0.0 : mean(height.(occupied))
     h_max    = isempty(occupied) ? 0   : maximum(height.(occupied))
+    n_nh     = length(city.neighborhoods)
+    n_laws   = count(law -> law.active, city.neighborhood_laws)
     hists    = _utility_histograms(city)
+    modal    = _modal_histograms(city)
     _broadcast_ctrl!(vis, Dict(
         "type"           => "stats",
         "step"           => t,
@@ -244,12 +268,17 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
         "h_mean"         => round(h_mean; digits=2),
         "h_max"          => h_max,
         "elapsed"        => round(elapsed; digits=3),
+        "pct_laws"       => round(100.0 * n_laws / n_nh; digits=1),
         "hist_overall"   => hists.overall,
         "hist_proximity" => hists.proximity,
         "hist_nh"        => hists.nh,
         "hist_nh_max"    => hists.nh_max,
         "hist_nh_min"    => hists.nh_min,
         "hist_bldg"      => hists.bldg,
+        "modal_density"  => modal.density,
+        "modal_nh_max"   => modal.nh_max,
+        "modal_nh_min"   => modal.nh_min,
+        "modal_bldg"     => modal.bldg,
     ))
 end
 
@@ -274,6 +303,17 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
 
         if t == "start"
             _is_running() && continue
+            n_sqrt = get(cmd, "n_neighborhoods_sqrt", nothing)
+            if n_sqrt !== nothing
+                n_sqrt = Int(n_sqrt)
+                cur = city_ref[]
+                if n_sqrt^2 != length(cur.neighborhoods)
+                    new_city = generate_city(n_sqrt, n_sqrt; k=Int(cur.k))
+                    city_ref[] = new_city
+                    reset_vis!(vis)
+                    full_sync!(vis, new_city)
+                end
+            end
             vis.stop_flag[] = false
             _broadcast_ctrl!(vis, Dict("type" => "running", "value" => true))
             city = city_ref[]
