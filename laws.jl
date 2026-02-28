@@ -78,17 +78,36 @@ function neighborhood_observables(city::City, nid::Int)
 end
 
 function can_build_in_neighborhood(city::City, nid::Int, nd_cache)::Bool
-    law = city.neighborhood_laws[nid]
-    if !law.active || law.tree === nothing
-        return true
-    end
+    laws = city.neighborhood_laws[nid]
+    isempty(laws) && return true
     obs = (
         median = nd_cache.median[nid],
         max = nd_cache.max[nid],
         min = nd_cache.min[nid],
         vacancy_rate = nd_cache.vacancy_rate[nid],
     )
-    return !_eval_law_tree(law.tree, obs)
+    # Any active law that prohibits construction blocks the build.
+    for law in laws
+        if law.active && law.tree !== nothing && _eval_law_tree(law.tree, obs)
+            return false
+        end
+    end
+    return true
+end
+
+function _law_node_to_dict(node::LawNode)::Dict{String,Any}
+    if node.is_leaf
+        return Dict{String,Any}("leaf" => true, "block" => node.prohibit_new_build)
+    else
+        d = Dict{String,Any}(
+            "leaf"      => false,
+            "feature"   => String(node.feature),
+            "threshold" => round(Float64(node.threshold); digits=2),
+        )
+        node.left  !== nothing && (d["left"]  = _law_node_to_dict(node.left))
+        node.right !== nothing && (d["right"] = _law_node_to_dict(node.right))
+        return d
+    end
 end
 
 function _residents_by_neighborhood(city::City)
@@ -144,20 +163,18 @@ function evaluate_land_use_laws!(
 )
     n_nh = length(city.neighborhoods)
     incumbent = _residents_by_neighborhood(city)
-
-    proposed = deepcopy(city.neighborhood_laws)
     nd_cache_now = compute_nd_cache(city)
+
+    # Propose one new law per neighbourhood — regardless of existing laws.
+    new_proposals = Vector{LandUseLaw}(undef, n_nh)
     for nid in 1:n_nh
-        if proposed[nid].active
-            continue
-        end
         obs = (
             median = nd_cache_now.median[nid],
             max = nd_cache_now.max[nid],
             min = nd_cache_now.min[nid],
             vacancy_rate = nd_cache_now.vacancy_rate[nid],
         )
-        proposed[nid] = LandUseLaw(
+        new_proposals[nid] = LandUseLaw(
             active = true,
             tree = random_law_tree(rng, obs),
             vote_share = 0f0,
@@ -167,17 +184,20 @@ function evaluate_land_use_laws!(
 
     seed = rand(rng, UInt)
     city_without = deepcopy(city)
-    city_with = deepcopy(city)
-    city_with.neighborhood_laws .= proposed
+    city_with    = deepcopy(city)
+    # Add each proposal to the with-law branch alongside any existing laws.
+    for nid in 1:n_nh
+        push!(city_with.neighborhood_laws[nid], new_proposals[nid])
+    end
 
     rng_without = MersenneTwister(seed)
-    rng_with = MersenneTwister(seed)
+    rng_with    = MersenneTwister(seed)
     _simulate_hypothetical!(city_without, rng_without; horizon, n_search, agents_inflow)
     _simulate_hypothetical!(city_with,    rng_with;    horizon, n_search, agents_inflow)
     nd_without = compute_nd_cache(city_without)
-    nd_with = compute_nd_cache(city_with)
+    nd_with    = compute_nd_cache(city_with)
 
-    passed = String[]
+    passed = Dict{String,Any}[]
     for nid in 1:n_nh
         voters = incumbent[nid]
         if isempty(voters)
@@ -187,15 +207,24 @@ function evaluate_land_use_laws!(
         yes = 0
         for aid in voters
             u0 = _agent_current_utility(city_without, aid, nd_without)
-            u1 = _agent_current_utility(city_with, aid, nd_with)
+            u1 = _agent_current_utility(city_with,    aid, nd_with)
             yes += u1 > u0 ? 1 : 0
         end
         share = Float32(yes / length(voters))
         if share > 0.5f0
-            city.neighborhood_laws[nid] = proposed[nid]
-            city.neighborhood_laws[nid].vote_share = share
-            println("[LAW] neighbourhood $(nid) result: PASS (vote_share=$(round(share, digits=3)))")
-            push!(passed, "Nbhd $(nid) passed zoning law — $(round(Int, share*100))% yes")
+            proposal = new_proposals[nid]
+            proposal.vote_share = share
+            push!(city.neighborhood_laws[nid], proposal)
+            n_laws = length(city.neighborhood_laws[nid])
+            println("[LAW] neighbourhood $(nid) result: PASS (law #$(n_laws), vote_share=$(round(share, digits=3)))")
+            msg = "Nbhd $(nid) law #$(n_laws) passed — $(round(Int, share*100))% yes"
+            push!(passed, Dict{String,Any}(
+                "msg"        => msg,
+                "nid"        => nid,
+                "law_num"    => n_laws,
+                "tree"       => proposal.tree !== nothing ? _law_node_to_dict(proposal.tree) : nothing,
+                "vote_share" => Float64(share),
+            ))
         else
             println("[LAW] neighbourhood $(nid) result: FAIL (vote_share=$(round(share, digits=3)))")
         end

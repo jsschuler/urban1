@@ -98,5 +98,5 @@ struct City
     n_y::Int32      # neighborhoods in y direction
 
     neighborhood_to_buildings::Vector{Vector{Int32}}  # neighborhood id → [building ids]
-    neighborhood_laws::Vector{LandUseLaw}             # neighborhood id → active/pending law
+    neighborhood_laws::Vector{Vector{LandUseLaw}}     # neighborhood id → list of passed laws
 end

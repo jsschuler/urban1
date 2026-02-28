@@ -28,7 +28,7 @@ h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.06em; margin-bottom:
 .subtitle { font-size: 0.8rem; color: var(--muted); margin-bottom: 24px; }
 h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px; }
 
-.layout { display: grid; grid-template-columns: 290px 1fr; gap: 20px; max-width: 1020px; }
+.layout { display: grid; grid-template-columns: 290px 1fr 260px; gap: 20px; max-width: 1360px; }
 
 .panel {
     background: var(--panel);
@@ -111,6 +111,29 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
 .log .entry.law  { color: var(--accent); font-weight: 600; }
 
 .url-hint { font-size: 0.72rem; color: var(--muted); margin-top: 8px; font-family: monospace; }
+
+/* Laws panel */
+.laws-col { align-self: start; position: sticky; top: 28px; max-height: calc(100vh - 56px); overflow-y: auto; }
+.nh-grid { display: grid; gap: 3px; margin-bottom: 14px; }
+.nh-chip {
+    background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px;
+    cursor: pointer; font-size: 0.52rem; color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    padding: 3px 1px; min-width: 0; overflow: hidden; aspect-ratio: 1;
+    transition: background 0.15s, border-color 0.15s;
+}
+.nh-chip:hover { border-color: var(--accent); }
+.nh-chip.has-law { border-color: var(--yellow); color: var(--yellow); }
+.nh-chip.selected { background: var(--border); border-color: var(--accent); color: var(--text); }
+.law-item {
+    padding: 6px 8px; border-radius: 6px;
+    background: var(--input-bg); border: 1px solid var(--border);
+    cursor: pointer; font-size: 0.72rem; margin-bottom: 5px;
+    transition: border-color 0.15s;
+}
+.law-item:hover { border-color: var(--accent); }
+.law-item.selected { border-color: var(--accent); color: var(--accent); }
+.tree-wrap { overflow-x: auto; margin-top: 6px; }
 
 /* Histograms */
 .hist-grid {
@@ -270,12 +293,41 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
         </div>
     </div>
 
+    <!-- Third column: laws panel -->
+    <div class="laws-col">
+        <div class="panel">
+            <h2>Land Use Laws</h2>
+            <div id="nh-grid" class="nh-grid"></div>
+            <div id="law-list-section" style="display:none">
+                <h2 id="law-list-title" style="margin-bottom:8px">—</h2>
+                <div id="law-list"></div>
+            </div>
+            <div id="tree-section" style="display:none;margin-top:14px">
+                <h2 id="tree-title" style="margin-bottom:6px">Law tree</h2>
+                <div class="tree-wrap" id="tree-svg-wrap"></div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
 const WS_URL = "ws://127.0.0.1:8766";
 let ws = null;
 let isRunning = false;
+
+// ── Laws panel state ───────────────────────────────────────
+let _nbhdLaws  = {};   // nid (1-indexed) → [{msg, nid, law_num, tree, vote_share}]
+let _selNid    = null;
+let _selLawIdx = null;
+let _nNh       = 0;
+
+const FEAT_SHORT = {
+    "median_height": "med_h",
+    "max_height":    "max_h",
+    "min_height":    "min_h",
+    "vacancy_rate":  "vac%",
+};
 
 // ── Logging ───────────────────────────────────────────────
 function log(msg, cls = "") {
@@ -330,12 +382,36 @@ function connect() {
 
         if (msg.type === "law") {
             log("[LAW] " + msg.msg, "law");
+            const nid = msg.nid;
+            if (nid != null) {
+                if (!_nbhdLaws[nid]) _nbhdLaws[nid] = [];
+                _nbhdLaws[nid].push({
+                    msg:        msg.msg,
+                    nid:        nid,
+                    law_num:    msg.law_num,
+                    tree:       msg.tree,
+                    vote_share: msg.vote_share,
+                });
+                refreshChips();
+                if (_selNid === nid) renderLawList(nid);
+            }
+
+        } else if (msg.type === "reset_state") {
+            _nbhdLaws  = {};
+            _selNid    = null;
+            _selLawIdx = null;
+            refreshChips();
+            document.getElementById("law-list-section").style.display = "none";
+            document.getElementById("tree-section").style.display = "none";
 
         } else if (msg.type === "running") {
             setStatus(true, msg.value);
             if (!msg.value) log("Run finished");
 
         } else if (msg.type === "stats") {
+            if (msg.n_neighborhoods && msg.n_neighborhoods !== _nNh) {
+                renderNbhdGrid(msg.n_neighborhoods);
+            }
             setStat("step",      msg.step);
             setStat("agents",    msg.agents.toLocaleString());
             setStat("housed",    msg.housed.toLocaleString());
@@ -439,6 +515,126 @@ function sendStart() {
         n_neighborhoods_sqrt:  num("p-n_neighborhoods_sqrt"),
     });
     log("Start sent (" + num("p-n_steps") + " steps)", "info");
+}
+
+// ── Laws panel ────────────────────────────────────────────
+function renderNbhdGrid(n) {
+    if (n === _nNh && document.getElementById("nh-grid").childElementCount === n) return;
+    _nNh = n;
+    const sqrt = Math.round(Math.sqrt(n));
+    const grid = document.getElementById("nh-grid");
+    grid.style.gridTemplateColumns = `repeat(${sqrt}, 1fr)`;
+    grid.innerHTML = "";
+    for (let nid = 1; nid <= n; nid++) {
+        const chip = document.createElement("div");
+        chip.id = `nh-chip-${nid}`;
+        chip.title = `Neighbourhood ${nid}`;
+        chip.textContent = nid;
+        chip.onclick = () => selectNbhd(nid);
+        grid.appendChild(chip);
+    }
+    refreshChips();
+}
+
+function refreshChips() {
+    for (let nid = 1; nid <= _nNh; nid++) {
+        const chip = document.getElementById(`nh-chip-${nid}`);
+        if (!chip) continue;
+        const hasLaw = (_nbhdLaws[nid] || []).length > 0;
+        const isSel  = nid === _selNid;
+        chip.className = "nh-chip" + (hasLaw ? " has-law" : "") + (isSel ? " selected" : "");
+    }
+}
+
+function selectNbhd(nid) {
+    _selNid    = nid;
+    _selLawIdx = null;
+    refreshChips();
+    renderLawList(nid);
+    document.getElementById("tree-section").style.display = "none";
+}
+
+function renderLawList(nid) {
+    const sec   = document.getElementById("law-list-section");
+    const title = document.getElementById("law-list-title");
+    const list  = document.getElementById("law-list");
+    const laws  = _nbhdLaws[nid] || [];
+    title.textContent = `Nbhd ${nid} — ${laws.length} law${laws.length !== 1 ? "s" : ""}`;
+    list.innerHTML = "";
+    if (laws.length === 0) {
+        list.innerHTML = '<div style="font-size:0.72rem;color:var(--muted)">No laws passed yet.</div>';
+    } else {
+        laws.forEach((law, idx) => {
+            const item = document.createElement("div");
+            item.className = "law-item" + (idx === _selLawIdx ? " selected" : "");
+            item.textContent = `Law #${law.law_num} — ${Math.round(law.vote_share * 100)}% yes`;
+            item.onclick = () => selectLaw(nid, idx);
+            list.appendChild(item);
+        });
+    }
+    sec.style.display = "";
+}
+
+function selectLaw(nid, idx) {
+    _selLawIdx = idx;
+    renderLawList(nid);
+    const law = (_nbhdLaws[nid] || [])[idx];
+    if (!law || !law.tree) return;
+    document.getElementById("tree-title").textContent = `Law #${law.law_num} tree`;
+    renderTree(law.tree);
+    document.getElementById("tree-section").style.display = "";
+}
+
+function renderTree(tree) {
+    // Fixed depth-2 layout: W=200, H=175
+    // Centres: root(100,28) left(50,88) right(150,88) ll(25,148) lr(75,148) rl(125,148) rr(175,148)
+    const W = 200, H = 175;
+    const pos = {
+        root:  [100, 28],
+        left:  [50,  88],  right: [150, 88],
+        ll:    [25, 148],  lr:    [75, 148],
+        rl:    [125, 148], rr:    [175, 148],
+    };
+
+    function edge(a, b) {
+        const [x1, y1] = pos[a], [x2, y2] = pos[b];
+        return `<line x1="${x1}" y1="${y1+13}" x2="${x2}" y2="${y2-13}" stroke="#1e3a5a" stroke-width="1.5"/>`;
+    }
+
+    function splitNode(key, node) {
+        const [cx, cy] = pos[key];
+        const feat = FEAT_SHORT[node.feature] || node.feature;
+        return `<rect x="${cx-26}" y="${cy-13}" width="52" height="26" rx="4" fill="#16213e" stroke="#0f3460"/>` +
+               `<text x="${cx}" y="${cy-3}" text-anchor="middle" fill="#eaeaea" font-family="monospace" font-size="8">${feat}</text>` +
+               `<text x="${cx}" y="${cy+9}" text-anchor="middle" fill="#7a8599" font-family="monospace" font-size="8">≤${node.threshold}</text>`;
+    }
+
+    function leafNode(key, node) {
+        const [cx, cy] = pos[key];
+        const blk = node.block;
+        return `<rect x="${cx-20}" y="${cy-13}" width="40" height="26" rx="4" fill="${blk?"#7f1d1d":"#14532d"}" stroke="${blk?"#ef4444":"#22c55e"}"/>` +
+               `<text x="${cx}" y="${cy+5}" text-anchor="middle" fill="#eaeaea" font-family="monospace" font-size="8" font-weight="bold">${blk?"BLK":"ALW"}</text>`;
+    }
+
+    function drawNode(key, node) {
+        return node.leaf ? leafNode(key, node) : splitNode(key, node);
+    }
+
+    let s = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
+    // edges
+    s += edge("root", "left") + edge("root", "right");
+    if (tree.left)  { s += edge("left",  "ll") + edge("left",  "lr"); }
+    if (tree.right) { s += edge("right", "rl") + edge("right", "rr"); }
+    // nodes (drawn after edges so they sit on top)
+    s += drawNode("root", tree);
+    if (tree.left)       s += drawNode("left",  tree.left);
+    if (tree.right)      s += drawNode("right", tree.right);
+    if (tree.left?.left)  s += drawNode("ll", tree.left.left);
+    if (tree.left?.right) s += drawNode("lr", tree.left.right);
+    if (tree.right?.left)  s += drawNode("rl", tree.right.left);
+    if (tree.right?.right) s += drawNode("rr", tree.right.right);
+    s += "</svg>";
+    document.getElementById("tree-svg-wrap").innerHTML = s;
 }
 
 // ── Boot ──────────────────────────────────────────────────

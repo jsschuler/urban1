@@ -131,8 +131,15 @@ function run_steps!(
                 n_search=n_search,
                 agents_inflow=agents_inflow,
             )
-            for msg in passed
-                _broadcast_ctrl!(vis, Dict("type" => "law", "msg" => msg))
+            for law_data in passed
+                _broadcast_ctrl!(vis, Dict(
+                    "type"       => "law",
+                    "msg"        => law_data["msg"],
+                    "nid"        => law_data["nid"],
+                    "law_num"    => law_data["law_num"],
+                    "tree"       => law_data["tree"],
+                    "vote_share" => law_data["vote_share"],
+                ))
             end
         end
 
@@ -255,7 +262,7 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
     h_mean   = isempty(occupied) ? 0.0 : mean(height.(occupied))
     h_max    = isempty(occupied) ? 0   : maximum(height.(occupied))
     n_nh     = length(city.neighborhoods)
-    n_laws   = count(law -> law.active, city.neighborhood_laws)
+    n_laws   = count(laws -> !isempty(laws), city.neighborhood_laws)
     hists    = _utility_histograms(city)
     modal    = _modal_histograms(city)
     _broadcast_ctrl!(vis, Dict(
@@ -268,6 +275,7 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
         "h_mean"         => round(h_mean; digits=2),
         "h_max"          => h_max,
         "elapsed"        => round(elapsed; digits=3),
+        "n_neighborhoods" => n_nh,
         "pct_laws"       => round(100.0 * n_laws / n_nh; digits=1),
         "hist_overall"   => hists.overall,
         "hist_proximity" => hists.proximity,
@@ -374,7 +382,7 @@ function reset_model!(
     empty!(city.dwellings)
     empty!(city.agents)
     for i in eachindex(city.neighborhood_laws)
-        city.neighborhood_laws[i] = LandUseLaw()
+        empty!(city.neighborhood_laws[i])
     end
     n_agents > 0 && add_agents!(city, n_agents; rng=rng, kwargs...)
 
@@ -382,6 +390,7 @@ function reset_model!(
         reset_vis!(vis)
         full_sync!(vis, city)
     end
+    _broadcast_ctrl!(vis, Dict("type" => "reset_state"))
     return city
 end
 
