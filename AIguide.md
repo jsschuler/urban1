@@ -235,6 +235,17 @@ No code changes. Key model behaviour clarified:
 - Once unhoused, an agent is **permanently stuck** unless a vacancy becomes available: in subsequent steps they are processed as movers with `build_if_unhoused=false` and can never build their way out.
 - The unhoused count is therefore monotonically non-decreasing once laws start passing.
 
+### 2026-03-12 (session 7)
+
+#### `transport.jl` — road path fix
+- `evaluate_roads!` now walks a **4-connected Bresenham path** from the chosen endpoint pair to the other, adding every adjacent edge along the diagonal so all intermediate neighbourhoods are fully connected in the hop cache
+- Blender shows each adjacent segment; collectively they form a diagonal-looking corridor
+- `_ROAD_Z` changed from `-0.5` to `-4.0` and `_ROAD_BEVEL` from `0.2` to `1.5` in `blender_vis.py` for visibility at city scale
+
+#### `blender_vis.py` — road visibility
+- `_ROAD_Z = -4.0` — tubes sit well below the landscape plane
+- `_ROAD_BEVEL = 1.5` — 3-unit diameter tubes clearly visible across the 80-unit city grid
+
 ### 2026-03-12 (session 6)
 
 #### `transport.jl` (new file)
