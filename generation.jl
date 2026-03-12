@@ -46,6 +46,9 @@ function generate_city(n_x::Int, n_y::Int; k::Int = 8)::City
         end
     end
 
+    hop_cache = fill(typemax(Int32), n_neighborhoods, n_neighborhoods)
+    for i in 1:n_neighborhoods; hop_cache[i, i] = Int32(0); end
+
     return City(
         neighborhoods,
         buildings,
@@ -54,6 +57,8 @@ function generate_city(n_x::Int, n_y::Int; k::Int = 8)::City
         Int32(k), Int32(n_x), Int32(n_y),
         neighborhood_to_buildings,
         [LandUseLaw[] for _ in 1:n_neighborhoods],
+        Tuple{Int32,Int32}[],
+        hop_cache,
     )
 end
 

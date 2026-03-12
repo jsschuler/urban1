@@ -5,6 +5,7 @@ using Statistics: mean
 # Include in dependency order — each file is loaded exactly once.
 # Individual files contain no include() calls themselves.
 include("structs.jl")
+include("transport.jl")
 include("utility.jl")
 include("generation.jl")
 include("step.jl")
@@ -109,6 +110,10 @@ function run_steps!(
     land_use_eval_every::Int = 10,
     land_use_eval_horizon::Int = 10,
     step_delay::Float64 = 0.1,
+    allow_displacement::Bool = false,
+    enable_roads::Bool = false,
+    road_eval_every::Int = 20,
+    road_unit::Float32 = 1f0,
     require_authorization::Bool = true,
 )
     if require_authorization
@@ -124,12 +129,28 @@ function run_steps!(
     for t in 1:n_steps
         vis.stop_flag[] && break
 
+        if enable_roads && road_eval_every > 0 && t > 1 && (t - 1) % road_eval_every == 0
+            road_data = evaluate_roads!(city; road_unit=road_unit)
+            if road_data !== nothing
+                send_new_roads!(vis, city)
+                _broadcast_ctrl!(vis, Dict(
+                    "type"    => "road",
+                    "msg"     => road_data["msg"],
+                    "nid_a"   => road_data["nid_a"],
+                    "nid_b"   => road_data["nid_b"],
+                    "score"   => road_data["score"],
+                    "n_roads" => road_data["n_roads"],
+                ))
+            end
+        end
+
         if land_use_eval_every > 0 && t > 1 && (t - 1) % land_use_eval_every == 0
             passed = evaluate_land_use_laws!(
                 city, rng;
                 horizon=land_use_eval_horizon,
                 n_search=n_search,
                 agents_inflow=agents_inflow,
+                road_unit=road_unit,
             )
             for law_data in passed
                 _broadcast_ctrl!(vis, Dict(
@@ -147,7 +168,7 @@ function run_steps!(
         n_existing = length(city.agents)
         n_movers = clamp(round(Int, existing_move_share * n_existing), 0, n_existing)
         mover_ids = n_movers > 0 ? randperm(rng, n_existing)[1:n_movers] : Int[]
-        step!(city; n_search=n_search, rng=rng, agent_ids=mover_ids, build_if_unhoused=false)
+        step!(city; n_search=n_search, rng=rng, agent_ids=mover_ids, build_if_unhoused=false, allow_displacement=allow_displacement, road_unit=road_unit)
 
         n_before_inflow = length(city.agents)
         agents_inflow > 0 && add_agents!(city, agents_inflow; rng=rng)
@@ -157,7 +178,7 @@ function run_steps!(
         else
             Int[]
         end
-        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true)
+        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true, allow_displacement=allow_displacement, road_unit=road_unit)
         elapsed = time() - t0
 
         if blender_update_every > 0 && (t % blender_update_every == 0)
@@ -277,6 +298,7 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
         "elapsed"        => round(elapsed; digits=3),
         "n_neighborhoods" => n_nh,
         "pct_laws"       => round(100.0 * n_laws / n_nh; digits=1),
+        "n_roads"        => length(city.roads),
         "hist_overall"   => hists.overall,
         "hist_proximity" => hists.proximity,
         "hist_nh"        => hists.nh,
@@ -330,14 +352,18 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
                 try
                     run_steps!(city, vis, rng;
                         require_authorization  = false,
-                        n_steps                = get(cmd, "n_steps",               1000) |> Int,
-                        n_search               = get(cmd, "n_search",              5)    |> Int,
-                        agents_inflow          = get(cmd, "agents_inflow",         100)  |> Int,
-                        existing_move_share    = get(cmd, "existing_move_share",   0.1)  |> Float64,
-                        blender_update_every   = get(cmd, "blender_update_every",  0)    |> Int,
-                        land_use_eval_every    = get(cmd, "land_use_eval_every",   10)   |> Int,
-                        land_use_eval_horizon  = get(cmd, "land_use_eval_horizon", 10)   |> Int,
-                        step_delay             = get(cmd, "step_delay",            0.1)  |> Float64,
+                        n_steps                = get(cmd, "n_steps",               1000)  |> Int,
+                        n_search               = get(cmd, "n_search",              5)     |> Int,
+                        agents_inflow          = get(cmd, "agents_inflow",         100)   |> Int,
+                        existing_move_share    = get(cmd, "existing_move_share",   0.1)   |> Float64,
+                        blender_update_every   = get(cmd, "blender_update_every",  0)     |> Int,
+                        land_use_eval_every    = get(cmd, "land_use_eval_every",   10)    |> Int,
+                        land_use_eval_horizon  = get(cmd, "land_use_eval_horizon", 10)    |> Int,
+                        step_delay             = get(cmd, "step_delay",            0.1)   |> Float64,
+                        allow_displacement     = get(cmd, "allow_displacement",    false) |> Bool,
+                        enable_roads           = get(cmd, "enable_roads",          false) |> Bool,
+                        road_eval_every        = get(cmd, "road_eval_every",       20)    |> Int,
+                        road_unit              = get(cmd, "road_unit",             1.0)   |> Float32,
                     )
                 finally
                     vis.stop_flag[] = true
@@ -384,6 +410,8 @@ function reset_model!(
     for i in eachindex(city.neighborhood_laws)
         empty!(city.neighborhood_laws[i])
     end
+    empty!(city.roads)
+    rebuild_hop_cache!(city)
     n_agents > 0 && add_agents!(city, n_agents; rng=rng, kwargs...)
 
     if sync_blender
@@ -422,6 +450,10 @@ function run!(;
     land_use_eval_every::Int = 10,
     land_use_eval_horizon::Int = 10,
     step_delay::Float64 = 0.1,
+    allow_displacement::Bool = false,
+    enable_roads::Bool = false,
+    road_eval_every::Int = 20,
+    road_unit::Float32 = 1f0,
     require_authorization::Bool = true,
     seed      ::Int     = 42,
     ws_port   ::Int     = 8765,
@@ -432,7 +464,8 @@ function run!(;
     run_steps!(
         city, vis, rng;
         n_steps, n_search, agents_inflow, existing_move_share, blender_update_every,
-        land_use_eval_every, land_use_eval_horizon, step_delay, require_authorization,
+        land_use_eval_every, land_use_eval_horizon, step_delay, allow_displacement,
+        enable_roads, road_eval_every, road_unit, require_authorization,
     )
     return city, vis, rng
 end

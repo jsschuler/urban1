@@ -136,13 +136,14 @@ function _simulate_hypothetical!(
     horizon::Int,
     n_search::Int,
     agents_inflow::Int,
+    road_unit::Float32 = 1f0,
 )
     for _ in 1:horizon
         n_before = length(city.agents)
         agents_inflow > 0 && add_agents!(city, agents_inflow; rng=rng)
         n_after = length(city.agents)
         new_ids = n_after > n_before ? collect((n_before + 1):n_after) : Int[]
-        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true)
+        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true, road_unit=road_unit)
     end
     return city
 end
@@ -160,6 +161,7 @@ function evaluate_land_use_laws!(
     horizon::Int = 10,
     n_search::Int = 5,
     agents_inflow::Int = 100,
+    road_unit::Float32 = 1f0,
 )
     n_nh = length(city.neighborhoods)
     incumbent = _residents_by_neighborhood(city)
@@ -192,8 +194,8 @@ function evaluate_land_use_laws!(
 
     rng_without = MersenneTwister(seed)
     rng_with    = MersenneTwister(seed)
-    _simulate_hypothetical!(city_without, rng_without; horizon, n_search, agents_inflow)
-    _simulate_hypothetical!(city_with,    rng_with;    horizon, n_search, agents_inflow)
+    _simulate_hypothetical!(city_without, rng_without; horizon, n_search, agents_inflow, road_unit)
+    _simulate_hypothetical!(city_with,    rng_with;    horizon, n_search, agents_inflow, road_unit)
     nd_without = compute_nd_cache(city_without)
     nd_with    = compute_nd_cache(city_with)
 

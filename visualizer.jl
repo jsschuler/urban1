@@ -46,11 +46,12 @@ mutable struct Visualizer
     incoming     ::Channel{Any}           # commands from any client (Blender or browser)
     ctrl_clients ::Vector{Any}            # browser WebSocket connections
     stop_flag    ::Ref{Bool}              # set true to interrupt run_steps!
+    sent_roads   ::Set{Tuple{Int32,Int32}} # road pairs already sent to Blender
 end
 
 Visualizer(; scheme = ColorScheme()) =
     Visualizer(Ref{Any}(nothing), Set{Int32}(), Dict{Int32,Float32}(), scheme,
-               Channel{Any}(32), Any[], Ref(true))
+               Channel{Any}(32), Any[], Ref(true), Set{Tuple{Int32,Int32}}())
 
 # ============================================================
 # Server
@@ -133,7 +134,30 @@ Use this before a full_sync! when resetting the simulation state.
 function reset_vis!(vis::Visualizer)
     empty!(vis.sent_ids)
     empty!(vis.last_budgets)
+    empty!(vis.sent_roads)
     _send!(vis, Dict("type" => "reset"))
+end
+
+function _road_entry(city::City, nid_a::Int32, nid_b::Int32)
+    ca = nh_center(city, Int(nid_a))
+    cb = nh_center(city, Int(nid_b))
+    Dict("nid_a" => Int(nid_a), "nid_b" => Int(nid_b),
+         "x_a"   => Int(ca.x),  "y_a"   => Int(ca.y),
+         "x_b"   => Int(cb.x),  "y_b"   => Int(cb.y))
+end
+
+"""Send any roads in city.roads not yet in vis.sent_roads to Blender."""
+function send_new_roads!(vis::Visualizer, city::City)
+    isnothing(vis.ws[]) && return
+    new_roads = Dict{String,Any}[]
+    for (a, b) in city.roads
+        key = (min(a, b), max(a, b))
+        key ∈ vis.sent_roads && continue
+        push!(new_roads, _road_entry(city, a, b))
+        push!(vis.sent_roads, key)
+    end
+    isempty(new_roads) && return
+    _send!(vis, Dict("type" => "new_roads", "roads" => new_roads))
 end
 
 # ============================================================
@@ -171,15 +195,16 @@ function full_sync!(vis::Visualizer, city::City)
     ))
     _send!(vis, Dict("type" => "color_scheme", "scheme" => _scheme_dict(vis.scheme)))
 
-    isempty(city.dwellings) && return
-
-    payload = [_dwelling_entry(d, city) for d in city.dwellings]
-    _send!(vis, Dict("type" => "new_dwellings", "dwellings" => payload))
-
-    for d in city.dwellings
-        push!(vis.sent_ids, d.id)
-        vis.last_budgets[d.id] = _dwelling_budget(d, city)
+    if !isempty(city.dwellings)
+        payload = [_dwelling_entry(d, city) for d in city.dwellings]
+        _send!(vis, Dict("type" => "new_dwellings", "dwellings" => payload))
+        for d in city.dwellings
+            push!(vis.sent_ids, d.id)
+            vis.last_budgets[d.id] = _dwelling_budget(d, city)
+        end
     end
+
+    send_new_roads!(vis, city)
 end
 
 """
@@ -213,6 +238,7 @@ function send_step_diff!(vis::Visualizer, city::City)
 
     _send_chunked!(vis, "new_dwellings", "dwellings", new_payload)
     _send_chunked!(vis, "budget_updates", "updates", update_payload)
+    send_new_roads!(vis, city)
 end
 
 """

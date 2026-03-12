@@ -56,6 +56,11 @@ input[type=number] {
 }
 input[type=number]:focus { outline: none; border-color: var(--accent); }
 
+/* Checkboxes */
+.check-field { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+.check-field label { font-size: 0.75rem; color: var(--muted); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
 /* Buttons */
 .buttons { display: flex; gap: 8px; margin-top: 18px; }
 button {
@@ -109,6 +114,7 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
 .log .entry.info { color: var(--text); }
 .log .entry.warn { color: var(--yellow); }
 .log .entry.law  { color: var(--accent); font-weight: 600; }
+.log .entry.road { color: #00bcd4; font-weight: 600; }
 
 .url-hint { font-size: 0.72rem; color: var(--muted); margin-top: 8px; font-family: monospace; }
 
@@ -189,6 +195,22 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
                 <label>Existing mover share (0–1)</label>
                 <input type="number" id="p-existing_move_share" value="0.1" min="0" max="1" step="0.01">
             </div>
+            <div class="check-field">
+                <input type="checkbox" id="p-allow_displacement">
+                <label for="p-allow_displacement">Allow budget displacement</label>
+            </div>
+            <div class="check-field">
+                <input type="checkbox" id="p-enable_roads">
+                <label for="p-enable_roads">Enable road planning</label>
+            </div>
+            <div class="field">
+                <label>Road eval every N steps</label>
+                <input type="number" id="p-road_eval_every" value="20" min="1">
+            </div>
+            <div class="field">
+                <label>Road unit distance</label>
+                <input type="number" id="p-road_unit" value="2" min="0.1" step="0.1">
+            </div>
             <div class="field">
                 <label>Blender update every N steps (0 = end)</label>
                 <input type="number" id="p-blender_update_every" value="0" min="0">
@@ -232,6 +254,7 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
                 <div class="stat"><div class="stat-label">Max height</div> <div class="stat-value" id="s-h_max">—</div></div>
                 <div class="stat"><div class="stat-label">Step time</div>  <div class="stat-value" id="s-elapsed">—</div></div>
                 <div class="stat"><div class="stat-label">Laws %</div>     <div class="stat-value" id="s-pct-laws">—</div></div>
+                <div class="stat"><div class="stat-label">Roads</div>      <div class="stat-value" id="s-n-roads">—</div></div>
             </div>
         </div>
 
@@ -380,7 +403,10 @@ function connect() {
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
 
-        if (msg.type === "law") {
+        if (msg.type === "road") {
+            log("[ROAD] " + msg.msg, "road");
+
+        } else if (msg.type === "law") {
             log("[LAW] " + msg.msg, "law");
             const nid = msg.nid;
             if (nid != null) {
@@ -421,6 +447,7 @@ function connect() {
             setStat("h_max",     msg.h_max);
             setStat("elapsed",   msg.elapsed + "s");
             setStat("pct-laws",  msg.pct_laws + "%");
+            setStat("n-roads",   msg.n_roads ?? "—");
             drawHist("hist-overall",   msg.hist_overall);
             drawHist("hist-proximity", msg.hist_proximity);
             drawHist("hist-nh",        msg.hist_nh);
@@ -508,6 +535,10 @@ function sendStart() {
         n_search:              num("p-n_search"),
         agents_inflow:         num("p-agents_inflow"),
         existing_move_share:   num("p-existing_move_share"),
+        allow_displacement:    document.getElementById("p-allow_displacement").checked,
+        enable_roads:          document.getElementById("p-enable_roads").checked,
+        road_eval_every:       num("p-road_eval_every"),
+        road_unit:             num("p-road_unit"),
         blender_update_every:  num("p-blender_update_every"),
         land_use_eval_every:   num("p-land_use_eval_every"),
         land_use_eval_horizon: num("p-land_use_eval_horizon"),

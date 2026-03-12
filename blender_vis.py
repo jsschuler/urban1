@@ -61,6 +61,11 @@ _LANDSCAPE_COLOR = (0.04, 0.24, 0.06)
 _NH_OBJ_PREFIX  = "NIMBY_NH_"
 _SHARED_MAT_NAME = "NIMBY_DwellingMat"
 
+_ROADS_OBJ_NAME  = "NIMBY_Roads"
+_ROADS_MAT_NAME  = "NIMBY_RoadsMat"
+_ROAD_Z          = -4.0    # tube centre depth underground
+_ROAD_BEVEL      = 1.5     # tube radius in Blender units
+
 # Template cube: 0.9 × 0.9 × 1.0 units, centred at origin.
 # 8 vertices, 6 quad faces (24 loops total per dwelling).
 _CUBE_VERTS = [
@@ -119,6 +124,9 @@ _dwellings: dict = {}
 
 # nh_id → [d_id, d_id, ...] insertion-order list; index = mesh_idx
 _nh_dwelling_ids: dict = {}
+
+# normalised (min_nid, max_nid) pairs of roads already added to the curve
+_roads_built: set = set()
 
 # ============================================================
 # Colour helpers
@@ -418,6 +426,71 @@ def recolor_all():
         mesh.update()
 
 # ============================================================
+# Roads — underground subway tubes (Curve + bevel)
+# ============================================================
+
+def _get_road_material() -> bpy.types.Material:
+    mat = bpy.data.materials.get(_ROADS_MAT_NAME)
+    if mat is not None:
+        return mat
+    mat = bpy.data.materials.new(_ROADS_MAT_NAME)
+    mat.use_nodes = True
+    ng = mat.node_tree
+    ng.nodes.clear()
+    out = ng.nodes.new("ShaderNodeOutputMaterial")
+    em  = ng.nodes.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value    = (1.0, 0.85, 0.1, 1.0)  # yellow
+    em.inputs["Strength"].default_value = 3.0
+    ng.links.new(em.outputs["Emission"], out.inputs["Surface"])
+    return mat
+
+
+def _ensure_roads_obj() -> bpy.types.Object:
+    obj = bpy.data.objects.get(_ROADS_OBJ_NAME)
+    if obj is not None:
+        return obj
+    curve = bpy.data.curves.new(_ROADS_OBJ_NAME, "CURVE")
+    curve.dimensions      = "3D"
+    curve.bevel_depth     = _ROAD_BEVEL
+    curve.bevel_resolution = 3   # 8-sided tube
+    curve.materials.append(_get_road_material())
+    obj = bpy.data.objects.new(_ROADS_OBJ_NAME, curve)
+    col = _collection("Roads")
+    col.objects.link(obj)
+    return obj
+
+
+def create_roads_batch(roads: list):
+    """Add new road splines to the Roads curve object."""
+    obj   = _ensure_roads_obj()
+    curve = obj.data
+    for r in roads:
+        key = (min(r["nid_a"], r["nid_b"]), max(r["nid_a"], r["nid_b"]))
+        if key in _roads_built:
+            continue
+        _roads_built.add(key)
+        x_a = float(r["x_a"]) - _center_x
+        y_a = float(r["y_a"]) - _center_y
+        x_b = float(r["x_b"]) - _center_x
+        y_b = float(r["y_b"]) - _center_y
+        spline = curve.splines.new("POLY")
+        spline.points.add(1)              # new spline starts with 1 point; add 1 more
+        spline.points[0].co = (x_a, y_a, _ROAD_Z, 1.0)
+        spline.points[1].co = (x_b, y_b, _ROAD_Z, 1.0)
+
+
+def reset_roads():
+    """Remove all road splines and clear tracking state."""
+    _roads_built.clear()
+    obj = bpy.data.objects.get(_ROADS_OBJ_NAME)
+    if obj is None:
+        return
+    curve = obj.data
+    for spline in list(curve.splines):
+        curve.splines.remove(spline)
+
+
+# ============================================================
 # Message dispatch
 # ============================================================
 
@@ -447,8 +520,12 @@ def _handle(msg: dict):
         for u in msg["updates"]:
             update_budget(u["id"], u["budget"])
 
+    elif t == "new_roads":
+        create_roads_batch(msg.get("roads", []))
+
     elif t == "reset":
         reset_dwellings()
+        reset_roads()
 
     elif t == "color_scheme":
         _scheme.update(msg["scheme"])

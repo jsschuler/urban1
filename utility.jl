@@ -129,16 +129,17 @@ The copula parameter θ controls cross-dimension dependence; θ > 0 (positive
 dependence) is the economically natural setting.
 """
 function agent_utility(
-    agent   ::Agent,
-    b       ::Building,
+    agent    ::Agent,
+    b        ::Building,
     nd_cache,
-    job_pos ::Position,
+    job_pos  ::Position;
+    eff_dist ::Float32 = -1f0,   # pre-computed effective distance; <0 → use Euclidean
 )::Float32
     nd_median = nd_cache.median[b.neighborhood_id]
     nd_max  = nd_cache.max[b.neighborhood_id]
     nd_min  = nd_cache.min[b.neighborhood_id]
     bh   = Float32(height(b))
-    dist = distance(b.pos, job_pos)
+    dist = eff_dist >= 0f0 ? eff_dist : distance(b.pos, job_pos)
 
     dims = _UTILITY_DIMS[]
     marginals = Float32[]

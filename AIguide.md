@@ -235,6 +235,54 @@ No code changes. Key model behaviour clarified:
 - Once unhoused, an agent is **permanently stuck** unless a vacancy becomes available: in subsequent steps they are processed as movers with `build_if_unhoused=false` and can never build their way out.
 - The unhoused count is therefore monotonically non-decreasing once laws start passing.
 
+### 2026-03-12 (session 6)
+
+#### `transport.jl` (new file)
+- `nh_center(city, nid)` — neighbourhood centre in building-grid units
+- `rebuild_hop_cache!(city)` — BFS over `city.roads` to fill `city.nh_hop_cache` (pairwise hop counts; `typemax(Int32)` = unconnected)
+- `effective_distance(city, home_b, job_b, road_unit)` — `min(euclidean, subway)` where subway = walk to home nh-centre + hops × road_unit + walk from job nh-centre; falls back to Euclidean if neighbourhoods unconnected
+- `evaluate_roads!(city; road_unit)` — greedy planner: scores all unbuilt neighbourhood pairs by `|median_height_a − median_height_b|`, adds the best edge, rebuilds hop cache; returns a `Dict` with `nid_a`, `nid_b`, `score`, `msg`, `n_roads`
+
+#### `structs.jl`
+- Added `roads::Vector{Tuple{Int32,Int32}}` and `nh_hop_cache::Matrix{Int32}` to `City`
+
+#### `generation.jl`
+- `generate_city` initialises `roads = Tuple{Int32,Int32}[]` and `hop_cache` (identity diagonal, `typemax(Int32)` elsewhere)
+
+#### `step.jl`
+- `search_candidates` type-B weights now use `effective_distance` instead of raw Euclidean
+- `step!` passes `road_unit` through to both `effective_distance` calls and `search_candidates`
+
+#### `laws.jl`
+- `_simulate_hypothetical!` and `evaluate_land_use_laws!` accept and forward `road_unit`
+
+#### `main.jl`
+- `run_steps!` gains `enable_roads`, `road_eval_every`, `road_unit` parameters; calls `evaluate_roads!` and `send_new_roads!` on schedule; broadcasts `"road"` message to browser clients
+- `reset_model!` clears `city.roads` and calls `rebuild_hop_cache!`
+- `send_ctrl_stats!` broadcasts `"n_roads"` count
+- `_ctrl_loop!` forwards `enable_roads`, `road_eval_every`, `road_unit` from browser start command
+
+#### `visualizer.jl`
+- `Visualizer` gains `sent_roads::Set{Tuple{Int32,Int32}}`
+- `_road_entry(city, nid_a, nid_b)` — builds road dict with centre positions
+- `send_new_roads!(vis, city)` — sends unsent roads as `"new_roads"` message
+- `full_sync!` and `send_step_diff!` both call `send_new_roads!`
+- `reset_vis!` clears `sent_roads`
+
+#### `blender_vis.py` — road visualization
+- `_ROADS_OBJ_NAME = "NIMBY_Roads"`, `_ROAD_Z = -0.5`, `_ROAD_BEVEL = 0.2`
+- `_get_road_material()` — yellow Emission shader (RGB 1.0, 0.85, 0.1; strength 3.0)
+- `_ensure_roads_obj()` — single CURVE object in "Roads" collection, `bevel_depth=0.2`, 8-sided tube
+- `create_roads_batch(roads)` — adds POLY splines at `z = -0.5` (underground subway aesthetic)
+- `reset_roads()` — removes all splines, clears `_roads_built` tracking set
+- `_handle` wired: `"new_roads"` → `create_roads_batch`; `"reset"` calls both `reset_dwellings` and `reset_roads`
+
+#### `index.html` — road UI
+- CSS `.log .entry.road` — cyan (`#00bcd4`) log style
+- `msg.type === "road"` handler logs `[ROAD] <msg>` in cyan
+- "Roads" stat tile (`s-n-roads`) updated from `msg.n_roads` in stats handler
+- "Enable road planning", "Road eval every N steps", "Road unit distance" parameter fields sent in `sendStart()`
+
 ### 2026-02-27 (session 5)
 
 #### `generation.jl` — tighten σ defaults

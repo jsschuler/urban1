@@ -99,4 +99,7 @@ struct City
 
     neighborhood_to_buildings::Vector{Vector{Int32}}  # neighborhood id → [building ids]
     neighborhood_laws::Vector{Vector{LandUseLaw}}     # neighborhood id → list of passed laws
+
+    roads::Vector{Tuple{Int32,Int32}}   # built roads as (nid_a, nid_b) neighbourhood pairs
+    nh_hop_cache::Matrix{Int32}         # pairwise BFS hop counts; typemax(Int32) = unconnected
 end

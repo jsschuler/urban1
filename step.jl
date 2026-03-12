@@ -53,14 +53,16 @@ Sample 2n candidate building IDs using alternating search criteria.
                             and are near work.
 """
 function search_candidates(
-    agent   ::Agent,
-    city    ::City,
+    agent    ::Agent,
+    city     ::City,
     nd_cache,
-    n       ::Int,
-    rng     ::AbstractRNG,
+    n        ::Int,
+    rng      ::AbstractRNG,
+    road_unit::Float32 = 1f0,
 )::Vector{Int32}
-    n_b  = length(city.buildings)
-    jpos = city.buildings[agent.job_building_id].pos
+    n_b   = length(city.buildings)
+    jpos  = city.buildings[agent.job_building_id].pos
+    job_b = city.buildings[agent.job_building_id]
 
     # Type-A weights: neighbourhood density marginal (consistent with copula)
     wA = Weights([begin
@@ -69,12 +71,12 @@ function search_candidates(
         end
         for b in city.buildings])
 
-    # Type-B weights: building height marginal × proximity marginal
+    # Type-B weights: building height marginal × proximity marginal (using effective distance)
     wB = Weights([begin
-            bh   = Float32(height(b))
-            dist = distance(b.pos, jpos)
-            uh   = Float64(_u_pct_diff(bh,  agent.pref_building_height, agent.σ_building))
-            up   = Float64(_u_proximity(dist, agent.proximity_scale))
+            bh = Float32(height(b))
+            ed = effective_distance(city, b, job_b, road_unit)
+            uh = Float64(_u_pct_diff(bh, agent.pref_building_height, agent.σ_building))
+            up = Float64(_u_proximity(ed, agent.proximity_scale))
             uh * up + 1e-8
         end
         for b in city.buildings])
@@ -145,6 +147,8 @@ function step!(
     rng      ::AbstractRNG  = Random.default_rng(),
     agent_ids              = eachindex(city.agents),
     build_if_unhoused::Bool = true,
+    allow_displacement::Bool = false,
+    road_unit::Float32 = 1f0,
 )
     isempty(agent_ids) && return
 
@@ -154,20 +158,31 @@ function step!(
     # 2. Process selected agents once in random order
     selected = [city.agents[i] for i in agent_ids]
     for agent in shuffle(rng, selected)
-        jpos = city.buildings[agent.job_building_id].pos
+        jpos  = city.buildings[agent.job_building_id].pos
+        job_b = city.buildings[agent.job_building_id]
 
-        # --- sample existing dwellings (vacant + occupied), choose best vacant ---
+        # --- sample existing dwellings, choose best vacant or displaceable candidate ---
         sampled = search_dwellings(city, n_search, rng)
-        best_vac = nothing
-        best_vac_u = -Inf32
+        best_cand = nothing
+        best_cand_u = -Inf32
 
         for d in sampled
+            b  = city.buildings[d.building_id]
+            ed = effective_distance(city, b, job_b, road_unit)
             if d.occupant_id == 0
-                b = city.buildings[d.building_id]
-                u = agent_utility(agent, b, nd_cache, jpos)
-                if u > best_vac_u
-                    best_vac_u = u
-                    best_vac = d
+                u = agent_utility(agent, b, nd_cache, jpos; eff_dist=ed)
+                if u > best_cand_u
+                    best_cand_u = u
+                    best_cand = d
+                end
+            elseif allow_displacement && d.occupant_id != agent.id
+                occupant = city.agents[d.occupant_id]
+                if agent.budget > occupant.budget
+                    u = agent_utility(agent, b, nd_cache, jpos; eff_dist=ed)
+                    if u > best_cand_u
+                        best_cand_u = u
+                        best_cand = d
+                    end
                 end
             end
         end
@@ -175,22 +190,30 @@ function step!(
         current_u = if agent.dwelling_id == 0
             -Inf32
         else
-            cur_d = city.dwellings[agent.dwelling_id]
-            cur_b = city.buildings[cur_d.building_id]
-            agent_utility(agent, cur_b, nd_cache, jpos)
+            cur_d  = city.dwellings[agent.dwelling_id]
+            cur_b  = city.buildings[cur_d.building_id]
+            cur_ed = effective_distance(city, cur_b, job_b, road_unit)
+            agent_utility(agent, cur_b, nd_cache, jpos; eff_dist=cur_ed)
         end
 
-        if best_vac !== nothing && best_vac_u > current_u
-            move_into_vacant!(agent, best_vac, city)
+        if best_cand !== nothing && best_cand_u > current_u
+            if best_cand.occupant_id != 0
+                city.agents[best_cand.occupant_id].dwelling_id = Int32(0)
+            end
+            move_into_vacant!(agent, best_cand, city)
             continue
         end
 
         if agent.dwelling_id == 0 && build_if_unhoused
             # No sampled vacancy available for an unhoused entrant: build.
-            cand_bids   = search_candidates(agent, city, nd_cache, n_search, rng)
+            cand_bids   = search_candidates(agent, city, nd_cache, n_search, rng, road_unit)
             unique_bids = unique(cand_bids)
             sort!(unique_bids;
-                  by  = bid -> agent_utility(agent, city.buildings[bid], nd_cache, jpos),
+                  by  = bid -> begin
+                      b_ = city.buildings[bid]
+                      ed = effective_distance(city, b_, job_b, road_unit)
+                      agent_utility(agent, b_, nd_cache, jpos; eff_dist=ed)
+                  end,
                   rev = true)
             build_bid = findfirst(bid -> can_build_in_neighborhood(city, Int(city.buildings[bid].neighborhood_id), nd_cache), unique_bids)
             if build_bid !== nothing
