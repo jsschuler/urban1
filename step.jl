@@ -206,6 +206,7 @@ function step!(
 
         if agent.dwelling_id == 0 && build_if_unhoused
             # No sampled vacancy available for an unhoused entrant: build.
+            # Phase 1: weighted search over preferred candidates.
             cand_bids   = search_candidates(agent, city, nd_cache, n_search, rng, road_unit)
             unique_bids = unique(cand_bids)
             sort!(unique_bids;
@@ -216,8 +217,26 @@ function step!(
                   end,
                   rev = true)
             build_bid = findfirst(bid -> can_build_in_neighborhood(city, Int(city.buildings[bid].neighborhood_id), nd_cache), unique_bids)
+
             if build_bid !== nothing
                 build_and_move_in!(agent, city.buildings[unique_bids[build_bid]], city)
+            else
+                # Phase 2 fallback: weighted search missed all law-free neighborhoods.
+                # Find the best building across every neighbourhood that permits building.
+                free_nids = [nid for nid in 1:length(city.neighborhoods)
+                             if can_build_in_neighborhood(city, nid, nd_cache)]
+                if !isempty(free_nids)
+                    best_bid = argmax(
+                        bid -> begin
+                            b_ = city.buildings[bid]
+                            ed = effective_distance(city, b_, job_b, road_unit)
+                            Float64(agent_utility(agent, b_, nd_cache, jpos; eff_dist=ed))
+                        end,
+                        [bid for nid in free_nids
+                             for bid in city.neighborhood_to_buildings[nid]],
+                    )
+                    build_and_move_in!(agent, city.buildings[best_bid], city)
+                end
             end
         end
     end

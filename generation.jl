@@ -59,6 +59,7 @@ function generate_city(n_x::Int, n_y::Int; k::Int = 8)::City
         [LandUseLaw[] for _ in 1:n_neighborhoods],
         Tuple{Int32,Int32}[],
         hop_cache,
+        Employer[],
     )
 end
 

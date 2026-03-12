@@ -232,8 +232,29 @@ No code changes. Key model behaviour clarified:
 - An unhoused agent is one with `dwelling_id == 0`.
 - New inflow agents (`build_if_unhoused=true`) can only fail to build if **all** `2*n_search` sampled candidate buildings fall in neighbourhoods where the active law's decision tree currently returns `prohibit_new_build = true`. This does **not** require every neighbourhood to have a law — a minority of blocked neighbourhoods combined with small sample size (default `n_search=5`, so 10 candidates) is sufficient.
 - Laws are **conditional**: an active `LandUseLaw` evaluates a depth-2 tree against live observables (`median_height`, `max_height`, `min_height`, `vacancy_rate`). A neighbourhood with an active law may still permit building at current conditions.
-- Once unhoused, an agent is **permanently stuck** unless a vacancy becomes available: in subsequent steps they are processed as movers with `build_if_unhoused=false` and can never build their way out.
-- The unhoused count is therefore monotonically non-decreasing once laws start passing.
+- Once unhoused, an agent is processed as a mover with `build_if_unhoused=false` and cannot build their way out through the normal vacancy search.
+- **Fixed in session 8**: a Phase 2 fallback in `step.jl` now allows unhoused inflow agents to build in the best-utility building across all law-free neighbourhoods if the weighted candidate search fails. Agents can only remain permanently unhoused if every neighbourhood's active laws currently prohibit construction.
+
+### 2026-03-12 (session 8)
+
+#### `structs.jl` — employer worker deduplication
+- `Employer.worker_ids` changed from `Vector{Int32}` to `Set{Int32}` — prevents duplicate worker registration under async race conditions; `push!` on a Set is idempotent
+
+#### `step.jl` — unhoused agent fallback build
+- Bug: unhoused agents could only build in buildings returned by `search_candidates` (a small weighted sample of `2*n_search` buildings). If all sampled buildings fell in law-blocked neighbourhoods the agent stayed unhoused permanently, even when the majority of the city permitted building.
+- Fix: added a **Phase 2 fallback** — if the weighted candidate search finds no buildable location, the agent exhaustively searches all law-free neighbourhoods and builds in the best-utility building among them. The fallback only fires when Phase 1 fails, so it adds no cost in the common case.
+
+#### `employer.jl` + `structs.jl` + `generation.jl` + `main.jl` + `index.html` — employer relocation feature
+- New `Employer` struct: `id`, `job_building_id`, `worker_ids` (Set)
+- `City` gains `employers::Vector{Employer}` field; initialised empty in `generate_city`
+- New file `employer.jl`:
+  - `assign_to_employer!(city, eid, agent_ids)` — registers agents as workers and sets their `job_building_id` to the employer's current building
+  - `evaluate_employer_location!(city, rng, eid; n_candidates, horizon, n_search, road_unit)` — branch-simulates `n_candidates` candidate buildings (weighted by `job_weight`), runs `horizon` steps on each deepcopy, measures mean effective commute of housed workers, moves employer to the best candidate if strictly better than current location
+  - `_mean_employer_commute` — helper computing mean `effective_distance` over housed workers
+- `run_steps!` gains `enable_employer`, `employer_eval_every`, `employer_n_candidates`, `employer_horizon` params; assigns new inflow agents to employer each step; evaluates location every `employer_eval_every` steps
+- `reset_model!` clears `city.employers`; `_ctrl_loop!` creates a fresh employer (building 1, empty workers) when `enable_employer=true` and no employer exists
+- `send_ctrl_stats!` broadcasts `employer_workers` (worker count) and `employer_pos` ([x, y] of current building)
+- `index.html`: employer checkbox + 3 parameter fields; `[EMPLOYER]` log entries in purple; "Emp workers" and "Emp location" stat tiles
 
 ### 2026-03-12 (session 7)
 

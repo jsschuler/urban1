@@ -46,6 +46,12 @@ Base.@kwdef mutable struct LandUseLaw
     vote_share::Float32 = 0.0f0
 end
 
+mutable struct Employer
+    id             ::Int32
+    job_building_id::Int32
+    worker_ids     ::Set{Int32}
+end
+
 struct Building
     id::Int32
     pos::Position           # position in city grid (building units)
@@ -102,4 +108,6 @@ struct City
 
     roads::Vector{Tuple{Int32,Int32}}   # built roads as (nid_a, nid_b) neighbourhood pairs
     nh_hop_cache::Matrix{Int32}         # pairwise BFS hop counts; typemax(Int32) = unconnected
+
+    employers::Vector{Employer}
 end

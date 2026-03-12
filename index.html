@@ -114,7 +114,8 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
 .log .entry.info { color: var(--text); }
 .log .entry.warn { color: var(--yellow); }
 .log .entry.law  { color: var(--accent); font-weight: 600; }
-.log .entry.road { color: #00bcd4; font-weight: 600; }
+.log .entry.road     { color: #00bcd4; font-weight: 600; }
+.log .entry.employer { color: #ce93d8; font-weight: 600; }
 
 .url-hint { font-size: 0.72rem; color: var(--muted); margin-top: 8px; font-family: monospace; }
 
@@ -203,6 +204,22 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
                 <input type="checkbox" id="p-enable_roads">
                 <label for="p-enable_roads">Enable road planning</label>
             </div>
+            <div class="check-field">
+                <input type="checkbox" id="p-enable_employer">
+                <label for="p-enable_employer">Enable employer relocation</label>
+            </div>
+            <div class="field">
+                <label>Employer eval every N steps</label>
+                <input type="number" id="p-employer_eval_every" value="1" min="1">
+            </div>
+            <div class="field">
+                <label>Employer candidates</label>
+                <input type="number" id="p-employer_n_candidates" value="5" min="1">
+            </div>
+            <div class="field">
+                <label>Employer branch horizon</label>
+                <input type="number" id="p-employer_horizon" value="3" min="1">
+            </div>
             <div class="field">
                 <label>Road eval every N steps</label>
                 <input type="number" id="p-road_eval_every" value="20" min="1">
@@ -255,6 +272,8 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
                 <div class="stat"><div class="stat-label">Step time</div>  <div class="stat-value" id="s-elapsed">—</div></div>
                 <div class="stat"><div class="stat-label">Laws %</div>     <div class="stat-value" id="s-pct-laws">—</div></div>
                 <div class="stat"><div class="stat-label">Roads</div>      <div class="stat-value" id="s-n-roads">—</div></div>
+                <div class="stat"><div class="stat-label">Emp workers</div> <div class="stat-value" id="s-emp-workers">—</div></div>
+                <div class="stat"><div class="stat-label">Emp location</div><div class="stat-value" id="s-emp-pos" style="font-size:0.9rem">—</div></div>
             </div>
         </div>
 
@@ -403,7 +422,10 @@ function connect() {
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
 
-        if (msg.type === "road") {
+        if (msg.type === "employer") {
+            log("[EMPLOYER] " + msg.msg, "employer");
+
+        } else if (msg.type === "road") {
             log("[ROAD] " + msg.msg, "road");
 
         } else if (msg.type === "law") {
@@ -447,7 +469,9 @@ function connect() {
             setStat("h_max",     msg.h_max);
             setStat("elapsed",   msg.elapsed + "s");
             setStat("pct-laws",  msg.pct_laws + "%");
-            setStat("n-roads",   msg.n_roads ?? "—");
+            setStat("n-roads",      msg.n_roads ?? "—");
+            setStat("emp-workers",  msg.employer_workers ?? "—");
+            setStat("emp-pos",      msg.employer_pos ? `(${msg.employer_pos[0]},${msg.employer_pos[1]})` : "—");
             drawHist("hist-overall",   msg.hist_overall);
             drawHist("hist-proximity", msg.hist_proximity);
             drawHist("hist-nh",        msg.hist_nh);
@@ -537,6 +561,10 @@ function sendStart() {
         existing_move_share:   num("p-existing_move_share"),
         allow_displacement:    document.getElementById("p-allow_displacement").checked,
         enable_roads:          document.getElementById("p-enable_roads").checked,
+        enable_employer:       document.getElementById("p-enable_employer").checked,
+        employer_eval_every:   num("p-employer_eval_every"),
+        employer_n_candidates: num("p-employer_n_candidates"),
+        employer_horizon:      num("p-employer_horizon"),
         road_eval_every:       num("p-road_eval_every"),
         road_unit:             num("p-road_unit"),
         blender_update_every:  num("p-blender_update_every"),

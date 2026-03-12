@@ -10,6 +10,7 @@ include("utility.jl")
 include("generation.jl")
 include("step.jl")
 include("laws.jl")
+include("employer.jl")
 include("visualizer.jl")
 
 # ============================================================
@@ -114,6 +115,10 @@ function run_steps!(
     enable_roads::Bool = false,
     road_eval_every::Int = 20,
     road_unit::Float32 = 1f0,
+    enable_employer::Bool = false,
+    employer_eval_every::Int = 1,
+    employer_n_candidates::Int = 5,
+    employer_horizon::Int = 3,
     require_authorization::Bool = true,
 )
     if require_authorization
@@ -179,6 +184,23 @@ function run_steps!(
             Int[]
         end
         step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true, allow_displacement=allow_displacement, road_unit=road_unit)
+
+        # Assign new inflow agents to the employer, then evaluate location.
+        if enable_employer && !isempty(city.employers)
+            !isempty(new_ids) && assign_to_employer!(city, 1, new_ids)
+            if employer_eval_every > 0 && t % employer_eval_every == 0
+                emp_data = evaluate_employer_location!(city, rng, 1;
+                    n_candidates=employer_n_candidates,
+                    horizon=employer_horizon,
+                    n_search=n_search,
+                    road_unit=road_unit,
+                )
+                if emp_data !== nothing
+                    _broadcast_ctrl!(vis, merge(emp_data, Dict("type" => "employer")))
+                end
+            end
+        end
+
         elapsed = time() - t0
 
         if blender_update_every > 0 && (t % blender_update_every == 0)
@@ -299,6 +321,13 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
         "n_neighborhoods" => n_nh,
         "pct_laws"       => round(100.0 * n_laws / n_nh; digits=1),
         "n_roads"        => length(city.roads),
+        "employer_workers" => isempty(city.employers) ? 0 : length(city.employers[1].worker_ids),
+        "employer_pos"   => if isempty(city.employers)
+                                nothing
+                            else
+                                b = city.buildings[city.employers[1].job_building_id]
+                                [Int(b.pos.x), Int(b.pos.y)]
+                            end,
         "hist_overall"   => hists.overall,
         "hist_proximity" => hists.proximity,
         "hist_nh"        => hists.nh,
@@ -344,6 +373,11 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
                     full_sync!(vis, new_city)
                 end
             end
+            # Create employer if enabled and not yet present.
+            if get(cmd, "enable_employer", false) && isempty(city_ref[].employers)
+                push!(city_ref[].employers, Employer(Int32(1), Int32(1), Set{Int32}()))
+            end
+
             vis.stop_flag[] = false
             _broadcast_ctrl!(vis, Dict("type" => "running", "value" => true))
             city = city_ref[]
@@ -364,6 +398,10 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
                         enable_roads           = get(cmd, "enable_roads",          false) |> Bool,
                         road_eval_every        = get(cmd, "road_eval_every",       20)    |> Int,
                         road_unit              = get(cmd, "road_unit",             1.0)   |> Float32,
+                        enable_employer        = get(cmd, "enable_employer",       false) |> Bool,
+                        employer_eval_every    = get(cmd, "employer_eval_every",   1)     |> Int,
+                        employer_n_candidates  = get(cmd, "employer_n_candidates", 5)     |> Int,
+                        employer_horizon       = get(cmd, "employer_horizon",      3)     |> Int,
                     )
                 finally
                     vis.stop_flag[] = true
@@ -411,6 +449,7 @@ function reset_model!(
         empty!(city.neighborhood_laws[i])
     end
     empty!(city.roads)
+    empty!(city.employers)
     rebuild_hop_cache!(city)
     n_agents > 0 && add_agents!(city, n_agents; rng=rng, kwargs...)
 
@@ -454,6 +493,10 @@ function run!(;
     enable_roads::Bool = false,
     road_eval_every::Int = 20,
     road_unit::Float32 = 1f0,
+    enable_employer::Bool = false,
+    employer_eval_every::Int = 1,
+    employer_n_candidates::Int = 5,
+    employer_horizon::Int = 3,
     require_authorization::Bool = true,
     seed      ::Int     = 42,
     ws_port   ::Int     = 8765,
@@ -465,7 +508,9 @@ function run!(;
         city, vis, rng;
         n_steps, n_search, agents_inflow, existing_move_share, blender_update_every,
         land_use_eval_every, land_use_eval_horizon, step_delay, allow_displacement,
-        enable_roads, road_eval_every, road_unit, require_authorization,
+        enable_roads, road_eval_every, road_unit,
+        enable_employer, employer_eval_every, employer_n_candidates, employer_horizon,
+        require_authorization,
     )
     return city, vis, rng
 end
