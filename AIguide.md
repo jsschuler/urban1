@@ -16,6 +16,8 @@ This is a **NIMBY (Not In My Back Yard) Agent-Based Model** simulating urban hou
 | `utility.jl` | Agent utility function (Frank copula) |
 | `step.jl` | Per-step logic (movement, construction) |
 | `laws.jl` | Land-use law proposals and voting |
+| `transport.jl` | Road network, hop-count cache, effective commute distance |
+| `employer.jl` | Employer struct, worker assignment, branch-simulated location search |
 | `visualizer.jl` | Julia-side WebSocket server |
 | `blender_vis.py` | Blender add-on (receiver + renderer) |
 
@@ -29,7 +31,7 @@ This is a **NIMBY (Not In My Back Yard) Agent-Based Model** simulating urban hou
 - **`Neighborhood`** — a k×k block of buildings; the unit of zoning law governance
 - **`Agent`** — a person with a job location, budget, and residential preference parameters
 - **`LandUseLaw` / `LawNode`** — a depth-2 binary decision tree that can prohibit construction based on neighborhood observables
-- **`City`** — top-level container: neighborhoods, buildings, dwellings (flat list), agents, lookup tables, and per-neighborhood laws
+- **`City`** — top-level container: neighborhoods, buildings, dwellings (flat list), agents, lookup tables, per-neighborhood laws, road list (`roads`), pairwise neighborhood hop-count cache (`nh_hop_cache`), and employers
 
 ---
 
@@ -72,11 +74,11 @@ Active dimensions are configurable via `set_utility_dimensions!(...)`. The Frank
 Each call to `step!`:
 1. Snapshot neighborhood statistics into a cache (median/max/min height, vacancy rate)
 2. Shuffle selected agents; for each:
-   - Sample `2n_search` existing dwellings at random
+   - Sample up to `2n_search` existing dwellings at random
    - If a sampled vacancy has higher utility than current home → move in
-   - If unhoused and no vacancy found → search candidate buildings (weighted by utility), pick best that passes zoning law, **build a new dwelling**
+   - If unhoused and no vacancy found → search `3n_search` candidate buildings (`2n` weighted by utility + `n` uniform random), pick best that passes zoning law, **build a new dwelling**; if Phase 1 finds nothing, fall back to exhaustive search across all law-free neighborhoods
 
-`run_steps!` in `main.jl` separates movers (existing agents attempting relocation) from inflow (new agents, always allowed to build if needed).
+`run_steps!` in `main.jl` separates movers (existing agents attempting relocation) from inflow (new agents, always allowed to build if needed). Every unhoused agent is stepped on every tick regardless of `existing_move_share`; that parameter applies only to the housed pool.
 
 ---
 
@@ -84,7 +86,7 @@ Each call to `step!`:
 
 Every `land_use_eval_every` steps:
 
-1. **Propose**: for each neighborhood without an active law, generate a random depth-2 decision tree over observables (`median_height`, `max_height`, `min_height`, `vacancy_rate`)
+1. **Propose**: for every neighborhood (regardless of whether it already has an active law), generate a random depth-2 decision tree over observables (`median_height`, `max_height`, `min_height`, `vacancy_rate`)
 2. **Branch simulation**: deep-copy the city twice (with / without proposed laws); run `land_use_eval_horizon` steps of new-agent inflow on each branch using identical RNG seeds
 3. **Vote**: incumbent residents compare their utility in the two branches; majority rules
 4. **Adopt**: if >50% vote yes, the law becomes permanent — `can_build_in_neighborhood` will block new construction when the tree returns `prohibit_new_build = true`
