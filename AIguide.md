@@ -20,6 +20,9 @@ This is a **NIMBY (Not In My Back Yard) Agent-Based Model** simulating urban hou
 | `employer.jl` | Employer struct, worker assignment, branch-simulated location search |
 | `visualizer.jl` | Julia-side WebSocket server |
 | `blender_vis.py` | Blender add-on (receiver + renderer) |
+| `sweep.jl` | Overnight parallel parameter sweep (162 configs, no visualizer) |
+| `blender_sweep_loader.py` | Standalone Blender script for loading sweep JSON snapshots |
+| `talk.tex` | Beamer presentation "Urbanization from the Bottom Up" (GMU CSS) |
 
 ---
 
@@ -148,7 +151,127 @@ reset_model!(city, vis, rng; n_agents=5_000)
 
 ---
 
+---
+
+## Overnight Parameter Sweep (`sweep.jl`)
+
+### What it sweeps
+
+| Axis | Values | Meaning |
+|------|--------|---------|
+| `enable_roads` | `false`, `true` | transport network on/off |
+| `law_every` (T) | 5, 10, 20 | how often zoning votes fire (steps) |
+| `law_horizon` (H) | 3, 7, 15 | branch-simulation look-ahead depth |
+| `n_sqrt` | 6, 8, 10 | city side length (city = n×n neighbourhoods, k=8) |
+| `seed` | 42, 137, 999 | replication |
+
+Total: 2 × 3 × 3 × 3 × 3 = **162 runs**. Population is **fixed** across city sizes (`N_AGENTS_INIT = 500`, `AGENTS_INFLOW = 50`) so density varies — small cities are crowded, large cities sparse.
+
+### How to run
+
+```bash
+# On any machine with Julia installed and the project dependencies
+cd /path/to/urban1
+julia --project sweep.jl
+```
+
+The script automatically detects available cores and spawns `min(CPU_THREADS − 1, 15)` workers via `Distributed.addprocs`.
+
+### Julia package dependencies
+
+These must be installed in the project environment (`julia --project` then `]instantiate`, or `]add` manually):
+
+```
+Distributed   (stdlib)
+Random        (stdlib)
+Statistics    (stdlib)
+StatsBase
+CSV
+DataFrames
+JSON3
+```
+
+### Outputs
+
+All written to `sweep_results/` (created automatically):
+
+| File | Content |
+|------|---------|
+| `seed<S>_roads<R>_T<T>_H<H>_n<N>.csv` | Per-step metrics for one run |
+| `seed<S>_roads<R>_T<T>_H<H>_n<N>_city.json` | Final city snapshot for Blender |
+| `all_runs.csv` | All per-run CSVs merged (written at end) |
+
+Per-step metrics columns: `seed`, `enable_roads`, `law_every`, `law_horizon`, `n_sqrt`, `step`, `n_agents`, `housed_frac`, `mean_height`, `max_height`, `pct_laws`, `n_roads`, `height_p10`, `height_p50`, `height_p90`, `elapsed_s`.
+
+### City snapshot format (`*_city.json`)
+
+Mirrors the live WebSocket messages so `blender_sweep_loader.py` can load them directly:
+
+```json
+{
+  "run_id":      "seed42_roadstrue_T10_H7_n8",
+  "run_config":  { ...all cfg fields... },
+  "city_config": { "n_x": 8, "n_y": 8, "k": 8 },
+  "dwellings":   [{"id":1, "x":3, "y":4, "floor":2, "budget":1234.5}, ...],
+  "roads":       [{"nid_a":1, "nid_b":2, "x_a":0.5, "y_a":0.5, "x_b":4.5, "y_b":0.5}, ...]
+}
+```
+
+### Blender loader (`blender_sweep_loader.py`)
+
+Load a snapshot interactively or render headless:
+
+```bash
+# Interactive: open Blender, run the script, use the "NIMBY Sweep" N-panel
+#   → Load Snapshot (browse to a *_city.json file)
+#   → Recolor (switch between budget / height / density color modes)
+
+# Headless batch render of all runs in a sweep directory:
+blender --background --python blender_sweep_loader.py -- \
+  --sweep_dir sweep_results \
+  --output_dir renders \
+  --color_attr height
+```
+
+Color modes: `budget`, `height`, `density` (same logic as `blender_vis.py`).
+
+---
+
 ## Changelog
+
+### 2026-03-19 (session 10)
+
+#### `sweep.jl` (new file)
+- Overnight parallel parameter sweep: 162 configs across `enable_roads` × `law_every` × `law_horizon` × `n_sqrt` × `seed`
+- Uses `Distributed.addprocs` + `pmap`; spawns `min(CPU_THREADS − 1, 15)` workers
+- Population **fixed** (`N_AGENTS_INIT = 500`, `AGENTS_INFLOW = 50`) across all city sizes — density varies with `n_sqrt` to show law-formation and inequality differences
+- Each run writes `sweep_results/<run_id>.csv` (per-step metrics) immediately on completion for crash resilience
+- Constants used in `@everywhere` functions (`N_SEARCH`, `ROAD_UNIT`, `ROAD_EVERY`, `MOVE_SHARE`) defined inside the `@everywhere begin...end` block so workers can access them
+
+#### `sweep.jl` — city snapshot for Blender
+- Each run also writes `sweep_results/<run_id>_city.json` via `_save_city_snapshot`
+- Format mirrors live WebSocket messages: `city_config`, `dwellings` (id, x, y, floor, budget), `roads` (nid_a/b + centre coordinates)
+- Uses `JSON3` for serialization
+
+#### `blender_sweep_loader.py` (new file)
+- Standalone Blender script (no live WebSocket dependency) for loading sweep snapshots
+- Replicates all mesh/color logic from `blender_vis.py`: direct mesh geometry per neighbourhood, `FLOAT_COLOR CORNER` attribute, Principled BSDF with `display_color` geometry attribute
+- Three operators: `SWEEP_OT_Load` (browse + load a `*_city.json`), `SWEEP_OT_Recolor` (switch color mode), `SWEEP_OT_BatchRender`
+- N-panel tab: "NIMBY Sweep" in View3D
+- Headless batch render: `blender --background --python blender_sweep_loader.py -- --sweep_dir sweep_results --output_dir renders --color_attr height`
+
+#### `talk.tex` (new file) — Beamer presentation
+- Title: "Urbanization from the Bottom Up"; audience: GMU CSS & Data Science group
+- Black background, white/yellow/green/red/blue text; all diagrams in TikZ + pgfplots
+- **pgfplots compat**: installed version is 2014-era; use `\pgfplotsset{compat=1.10}` and `\pgfmathtruncatemacro` (not `\pgfmathsetmacro`) for any integer comparisons in `\ifnum`
+- `matrix plot*` is unsupported — heatmap slide uses pure TikZ `\fill` + `\foreach` instead
+- Slide structure: Outline → Fairfax prices (PNG) → Why ABM → City Structure (TikZ grid) → Agent Preferences → Utility Function → Simulation Step (flowchart) → NIMBY Mechanism (decision tree) → Transport & Employer → What Emerges → AI section (4 slides) → Sweep Design + 3 placeholder result frames → Connection to Real Market → Zoning Laws Are Already Trees → Future Work → Summary → Thank You
+
+#### `talk.tex` — "Zoning Laws Are Already Trees" slide
+- Fed the full Fairfax County zoning ordinance to ChatGPT and asked to what extent the rules can be represented as decision trees
+- Answer: most can (permit thresholds, setbacks, height limits, use-by-right tables); main exception is special-purpose / planned-development districts requiring case-by-case negotiation
+- Connects to naturalness of Julia structs for zone types + multiple dispatch for a single `can_build_in_neighborhood` interface
+- Opens path to a synthetic Fairfax County: parameterise model directly from ordinance
 
 ### 2026-02-27 (session 1)
 - Created `AIguide.md` with initial codebase description.
