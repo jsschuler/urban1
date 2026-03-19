@@ -1,4 +1,5 @@
 using Statistics: median
+using Random: shuffle!, AbstractRNG, default_rng
 
 # ============================================================
 # Network geometry helpers
@@ -102,7 +103,7 @@ Build one road per call using a greedy planning heuristic:
 No voting or branch simulation — a pure planner optimising connectivity
 between low-density and high-density areas.
 """
-function evaluate_roads!(city::City; road_unit::Float32 = 1f0)
+function evaluate_roads!(city::City; road_unit::Float32 = 1f0, rng::AbstractRNG = default_rng())
     n = length(city.neighborhoods)
 
     existing = Set{Tuple{Int32,Int32}}(
@@ -117,16 +118,22 @@ function evaluate_roads!(city::City; road_unit::Float32 = 1f0)
     end
 
     n_x = Int(city.n_x)
+
+    # Collect candidates in random order so ties break randomly (not always corner-first)
+    candidates = [(Int32(a), Int32(b)) for a in 1:n for b in (a + 1):n
+                  if (min(Int32(a), Int32(b)), max(Int32(a), Int32(b))) ∉ existing
+                  && city.nh_hop_cache[a, b] == typemax(Int32)]
+    shuffle!(rng, candidates)
+
     best_score = -1f0
     best_a = Int32(0)
     best_b = Int32(0)
-    for a in 1:n, b in (a + 1):n
-        (min(Int32(a), Int32(b)), max(Int32(a), Int32(b))) ∈ existing && continue
+    for (a, b) in candidates
         score = abs(medians[a] - medians[b])
         if score > best_score
             best_score = score
-            best_a = Int32(a)
-            best_b = Int32(b)
+            best_a = a
+            best_b = b
         end
     end
 

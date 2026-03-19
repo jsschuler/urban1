@@ -112,6 +112,9 @@ function run_steps!(
     land_use_eval_horizon::Int = 10,
     step_delay::Float64 = 0.1,
     allow_displacement::Bool = false,
+    law_allow_displacement::Bool = false,
+    law_incumbent_mover_share::Float64 = 0.0,
+    law_incumbent_can_build::Bool = false,
     enable_roads::Bool = false,
     road_eval_every::Int = 20,
     road_unit::Float32 = 1f0,
@@ -119,6 +122,25 @@ function run_steps!(
     employer_eval_every::Int = 1,
     employer_n_candidates::Int = 5,
     employer_horizon::Int = 3,
+    # Agent generation parameters (forwarded to add_agents! for each inflow batch)
+    pref_density_μ       ::Float32 = 3.0f0,
+    pref_density_σ       ::Float32 = 2.0f0,
+    pref_nh_max_height_μ ::Float32 = 6.0f0,
+    pref_nh_max_height_σ ::Float32 = 2.0f0,
+    pref_nh_min_height_μ ::Float32 = 1.0f0,
+    pref_nh_min_height_σ ::Float32 = 1.0f0,
+    pref_height_μ        ::Float32 = 3.0f0,
+    pref_height_σ        ::Float32 = 2.0f0,
+    σ_neighborhood_μ     ::Float32 = -0.5f0,
+    σ_neighborhood_σ     ::Float32 = 0.3f0,
+    σ_building_μ         ::Float32 = -0.5f0,
+    σ_building_σ         ::Float32 = 0.3f0,
+    proximity_scale_μ    ::Float32 = 2.5f0,
+    proximity_scale_σ    ::Float32 = 0.5f0,
+    copula_θ_μ           ::Float32 = 0.7f0,
+    copula_θ_σ           ::Float32 = 0.4f0,
+    budget_μ             ::Float32 = 1.0f0,
+    budget_σ             ::Float32 = 0.5f0,
     require_authorization::Bool = true,
 )
     if require_authorization
@@ -135,7 +157,7 @@ function run_steps!(
         vis.stop_flag[] && break
 
         if enable_roads && road_eval_every > 0 && t > 1 && (t - 1) % road_eval_every == 0
-            road_data = evaluate_roads!(city; road_unit=road_unit)
+            road_data = evaluate_roads!(city; road_unit=road_unit, rng=rng)
             if road_data !== nothing
                 send_new_roads!(vis, city)
                 _broadcast_ctrl!(vis, Dict(
@@ -156,6 +178,9 @@ function run_steps!(
                 n_search=n_search,
                 agents_inflow=agents_inflow,
                 road_unit=road_unit,
+                allow_displacement=law_allow_displacement,
+                incumbent_mover_share=law_incumbent_mover_share,
+                incumbent_can_build=law_incumbent_can_build,
             )
             for law_data in passed
                 _broadcast_ctrl!(vis, Dict(
@@ -170,13 +195,25 @@ function run_steps!(
         end
 
         t0 = time()
-        n_existing = length(city.agents)
-        n_movers = clamp(round(Int, existing_move_share * n_existing), 0, n_existing)
-        mover_ids = n_movers > 0 ? randperm(rng, n_existing)[1:n_movers] : Int[]
-        step!(city; n_search=n_search, rng=rng, agent_ids=mover_ids, build_if_unhoused=false, allow_displacement=allow_displacement, road_unit=road_unit)
+        n_existing    = length(city.agents)
+        unhoused_ids  = [i for i in 1:n_existing if city.agents[i].dwelling_id == 0]
+        housed_ids    = [i for i in 1:n_existing if city.agents[i].dwelling_id != 0]
+        n_movers_h    = clamp(round(Int, existing_move_share * length(housed_ids)), 0, length(housed_ids))
+        housed_movers = n_movers_h > 0 ? housed_ids[randperm(rng, length(housed_ids))[1:n_movers_h]] : Int[]
+        mover_ids     = vcat(unhoused_ids, housed_movers)
+        step!(city; n_search=n_search, rng=rng, agent_ids=mover_ids, build_if_unhoused=true, allow_displacement=allow_displacement, road_unit=road_unit)
 
         n_before_inflow = length(city.agents)
-        agents_inflow > 0 && add_agents!(city, agents_inflow; rng=rng)
+        agents_inflow > 0 && add_agents!(city, agents_inflow; rng=rng,
+            pref_density_μ=pref_density_μ, pref_density_σ=pref_density_σ,
+            pref_nh_max_height_μ=pref_nh_max_height_μ, pref_nh_max_height_σ=pref_nh_max_height_σ,
+            pref_nh_min_height_μ=pref_nh_min_height_μ, pref_nh_min_height_σ=pref_nh_min_height_σ,
+            pref_height_μ=pref_height_μ, pref_height_σ=pref_height_σ,
+            σ_neighborhood_μ=σ_neighborhood_μ, σ_neighborhood_σ=σ_neighborhood_σ,
+            σ_building_μ=σ_building_μ, σ_building_σ=σ_building_σ,
+            proximity_scale_μ=proximity_scale_μ, proximity_scale_σ=proximity_scale_σ,
+            copula_θ_μ=copula_θ_μ, copula_θ_σ=copula_θ_σ,
+            budget_μ=budget_μ, budget_σ=budget_σ)
         n_after_inflow = length(city.agents)
         new_ids = if n_after_inflow > n_before_inflow
             collect((n_before_inflow + 1):n_after_inflow)
@@ -308,6 +345,11 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
     n_laws   = count(laws -> !isempty(laws), city.neighborhood_laws)
     hists    = _utility_histograms(city)
     modal    = _modal_histograms(city)
+    nd_map   = compute_nd_cache(city)
+    emp_by_nh = zeros(Int, n_nh)
+    for agent in city.agents
+        emp_by_nh[Int(city.buildings[agent.job_building_id].neighborhood_id)] += 1
+    end
     _broadcast_ctrl!(vis, Dict(
         "type"           => "stats",
         "step"           => t,
@@ -338,6 +380,9 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
         "modal_nh_max"   => modal.nh_max,
         "modal_nh_min"   => modal.nh_min,
         "modal_bldg"     => modal.bldg,
+        "nh_density"     => Float64.(nd_map.median),
+        "nh_employment"  => emp_by_nh,
+        "roads"          => [[Int(a), Int(b)] for (a, b) in city.roads],
     ))
 end
 
@@ -362,12 +407,16 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
 
         if t == "start"
             _is_running() && continue
-            n_sqrt = get(cmd, "n_neighborhoods_sqrt", nothing)
-            if n_sqrt !== nothing
-                n_sqrt = Int(n_sqrt)
-                cur = city_ref[]
-                if n_sqrt^2 != length(cur.neighborhoods)
-                    new_city = generate_city(n_sqrt, n_sqrt; k=Int(cur.k))
+            begin
+                cur   = city_ref[]
+                n_sq  = let v = get(cmd, "n_neighborhoods_sqrt", nothing)
+                            v !== nothing ? Int(v) : Int(round(sqrt(length(cur.neighborhoods))))
+                        end
+                k_val = let v = get(cmd, "k", nothing)
+                            v !== nothing ? Int(v) : Int(cur.k)
+                        end
+                if n_sq^2 != length(cur.neighborhoods) || k_val != Int(cur.k)
+                    new_city = generate_city(n_sq, n_sq; k=k_val)
                     city_ref[] = new_city
                     reset_vis!(vis)
                     full_sync!(vis, new_city)
@@ -375,7 +424,13 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
             end
             # Create employer if enabled and not yet present.
             if get(cmd, "enable_employer", false) && isempty(city_ref[].employers)
-                push!(city_ref[].employers, Employer(Int32(1), Int32(1), Set{Int32}()))
+                city_c = city_ref[]
+                cx  = Int(city_c.n_x) * Int(city_c.k) ÷ 2
+                cy  = Int(city_c.n_y) * Int(city_c.k) ÷ 2
+                nx  = cx ÷ Int(city_c.k);  bx = cx % Int(city_c.k)
+                ny  = cy ÷ Int(city_c.k);  by = cy % Int(city_c.k)
+                center_bid = Int32((ny * Int(city_c.n_x) + nx) * Int(city_c.k)^2 + by * Int(city_c.k) + bx + 1)
+                push!(city_ref[].employers, Employer(Int32(1), center_bid, Set{Int32}()))
             end
 
             vis.stop_flag[] = false
@@ -394,14 +449,35 @@ function _ctrl_loop!(vis::Visualizer, city_ref, rng_ref)
                         land_use_eval_every    = get(cmd, "land_use_eval_every",   10)    |> Int,
                         land_use_eval_horizon  = get(cmd, "land_use_eval_horizon", 10)    |> Int,
                         step_delay             = get(cmd, "step_delay",            0.1)   |> Float64,
-                        allow_displacement     = get(cmd, "allow_displacement",    false) |> Bool,
-                        enable_roads           = get(cmd, "enable_roads",          false) |> Bool,
+                        allow_displacement          = get(cmd, "allow_displacement",           false) |> Bool,
+                        law_allow_displacement      = get(cmd, "law_allow_displacement",       false) |> Bool,
+                        law_incumbent_mover_share   = get(cmd, "law_incumbent_mover_share",    0.0)   |> Float64,
+                        law_incumbent_can_build     = get(cmd, "law_incumbent_can_build",      false) |> Bool,
+                        enable_roads                = get(cmd, "enable_roads",                 false) |> Bool,
                         road_eval_every        = get(cmd, "road_eval_every",       20)    |> Int,
                         road_unit              = get(cmd, "road_unit",             1.0)   |> Float32,
                         enable_employer        = get(cmd, "enable_employer",       false) |> Bool,
                         employer_eval_every    = get(cmd, "employer_eval_every",   1)     |> Int,
                         employer_n_candidates  = get(cmd, "employer_n_candidates", 5)     |> Int,
                         employer_horizon       = get(cmd, "employer_horizon",      3)     |> Int,
+                        pref_density_μ         = Float32(get(cmd, "pref_density_μ",       3.0)),
+                        pref_density_σ         = Float32(get(cmd, "pref_density_σ",       2.0)),
+                        pref_nh_max_height_μ   = Float32(get(cmd, "pref_nh_max_height_μ", 6.0)),
+                        pref_nh_max_height_σ   = Float32(get(cmd, "pref_nh_max_height_σ", 2.0)),
+                        pref_nh_min_height_μ   = Float32(get(cmd, "pref_nh_min_height_μ", 1.0)),
+                        pref_nh_min_height_σ   = Float32(get(cmd, "pref_nh_min_height_σ", 1.0)),
+                        pref_height_μ          = Float32(get(cmd, "pref_height_μ",        3.0)),
+                        pref_height_σ          = Float32(get(cmd, "pref_height_σ",        2.0)),
+                        σ_neighborhood_μ       = Float32(get(cmd, "σ_neighborhood_μ",    -0.5)),
+                        σ_neighborhood_σ       = Float32(get(cmd, "σ_neighborhood_σ",     0.3)),
+                        σ_building_μ           = Float32(get(cmd, "σ_building_μ",        -0.5)),
+                        σ_building_σ           = Float32(get(cmd, "σ_building_σ",         0.3)),
+                        proximity_scale_μ      = Float32(get(cmd, "proximity_scale_μ",    2.5)),
+                        proximity_scale_σ      = Float32(get(cmd, "proximity_scale_σ",    0.5)),
+                        copula_θ_μ             = Float32(get(cmd, "copula_θ_μ",           0.7)),
+                        copula_θ_σ             = Float32(get(cmd, "copula_θ_σ",           0.4)),
+                        budget_μ               = Float32(get(cmd, "budget_μ",             1.0)),
+                        budget_σ               = Float32(get(cmd, "budget_σ",             0.5)),
                     )
                 finally
                     vis.stop_flag[] = true
@@ -490,6 +566,9 @@ function run!(;
     land_use_eval_horizon::Int = 10,
     step_delay::Float64 = 0.1,
     allow_displacement::Bool = false,
+    law_allow_displacement::Bool = false,
+    law_incumbent_mover_share::Float64 = 0.0,
+    law_incumbent_can_build::Bool = false,
     enable_roads::Bool = false,
     road_eval_every::Int = 20,
     road_unit::Float32 = 1f0,
@@ -507,7 +586,8 @@ function run!(;
     run_steps!(
         city, vis, rng;
         n_steps, n_search, agents_inflow, existing_move_share, blender_update_every,
-        land_use_eval_every, land_use_eval_horizon, step_delay, allow_displacement,
+        land_use_eval_every, land_use_eval_horizon, step_delay, allow_displacement, law_allow_displacement,
+        law_incumbent_mover_share, law_incumbent_can_build,
         enable_roads, road_eval_every, road_unit,
         enable_employer, employer_eval_every, employer_n_candidates, employer_horizon,
         require_authorization,

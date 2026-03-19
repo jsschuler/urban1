@@ -64,7 +64,10 @@ _SHARED_MAT_NAME = "NIMBY_DwellingMat"
 _ROADS_OBJ_NAME  = "NIMBY_Roads"
 _ROADS_MAT_NAME  = "NIMBY_RoadsMat"
 _ROAD_Z          = -4.0    # tube centre depth underground
-_ROAD_BEVEL      = 1.5     # tube radius in Blender units
+_ROAD_BEVEL      = 0.3     # tube radius in Blender units
+
+_DWELLING_ALPHA  = 0.7     # dwelling cube alpha (semi-transparent so roads show through)
+_LANDSCAPE_ALPHA = 0.3     # ground plane alpha (reveals underground road tubes)
 
 # Template cube: 0.9 × 0.9 × 1.0 units, centred at origin.
 # 8 vertices, 6 quad faces (24 loops total per dwelling).
@@ -128,6 +131,9 @@ _nh_dwelling_ids: dict = {}
 # normalised (min_nid, max_nid) pairs of roads already added to the curve
 _roads_built: set = set()
 
+# (x, y) → worker_count for employment coloring
+_employment: dict = {}
+
 # ============================================================
 # Colour helpers
 # ============================================================
@@ -156,6 +162,8 @@ def _scheme_value(d_id: int) -> float:
                 pos = (e["x"], e["y"])
                 heights[pos] = heights.get(pos, 0) + 1
         return float(sum(heights.values()) / len(heights)) if heights else 0.0
+    elif attr == "employment":
+        return float(_employment.get((entry["x"], entry["y"]), 0))
     return entry["budget"]
 
 
@@ -206,12 +214,14 @@ def _get_dwelling_material() -> bpy.types.Material:
 
     mat = bpy.data.materials.new(_SHARED_MAT_NAME)
     mat.use_nodes = True
+    mat.blend_method = "BLEND"
     ng = mat.node_tree
     ng.nodes.clear()
 
     out  = ng.nodes.new("ShaderNodeOutputMaterial")
     bsdf = ng.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.inputs["Roughness"].default_value = 0.55
+    bsdf.inputs["Alpha"].default_value     = _DWELLING_ALPHA
 
     attr = ng.nodes.new("ShaderNodeAttribute")
     attr.attribute_name = "display_color"
@@ -325,11 +335,13 @@ def create_landscape(size: float = 500.0):
 
     mat = bpy.data.materials.new(name="NIMBY_Landscape_Mat")
     mat.use_nodes = True
-    mat.diffuse_color = (*_LANDSCAPE_COLOR, 1.0)
+    mat.blend_method  = "BLEND"
+    mat.diffuse_color = (*_LANDSCAPE_COLOR, _LANDSCAPE_ALPHA)
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = (*_LANDSCAPE_COLOR, 1.0)
         bsdf.inputs["Roughness"].default_value  = 1.0
+        bsdf.inputs["Alpha"].default_value      = _LANDSCAPE_ALPHA
         spec = bsdf.inputs.get("Specular") or bsdf.inputs.get("Specular IOR Level")
         if spec:
             spec.default_value = 0.0
@@ -379,6 +391,52 @@ def reset_dwellings():
             ca = mesh.color_attributes.get("display_color")
             if ca is not None:
                 mesh.color_attributes.remove(ca)
+
+
+def full_reset_scene():
+    """Remove all NIMBY scene objects and clear all internal state — ready for a new model."""
+    global _employment  # noqa: PLW0603
+    _dwellings.clear()
+    _nh_dwelling_ids.clear()
+    _pending_rebuild.clear()
+    _roads_built.clear()
+    _employment.clear()
+
+    # Remove NH mesh objects
+    for obj in list(bpy.data.objects):
+        if obj.name.startswith(_NH_OBJ_PREFIX):
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh is not None and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+
+    # Remove Roads curve object
+    obj = bpy.data.objects.get(_ROADS_OBJ_NAME)
+    if obj is not None:
+        curve = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if curve is not None and curve.users == 0:
+            bpy.data.curves.remove(curve)
+
+    # Remove Landscape
+    obj = bpy.data.objects.get("NIMBY_Landscape")
+    if obj is not None:
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh is not None and mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+
+    # Remove shared materials so they are recreated fresh next run
+    for mat_name in (_SHARED_MAT_NAME, _ROADS_MAT_NAME, "NIMBY_Landscape_Mat"):
+        mat = bpy.data.materials.get(mat_name)
+        if mat is not None:
+            bpy.data.materials.remove(mat)
+
+    # Remove empty collections
+    for col_name in ("Dwellings", "Roads"):
+        col = bpy.data.collections.get(col_name)
+        if col is not None and len(col.objects) == 0:
+            bpy.data.collections.remove(col)
 
 
 def update_budget(d_id: int, budget: float):
@@ -437,11 +495,11 @@ def _get_road_material() -> bpy.types.Material:
     mat.use_nodes = True
     ng = mat.node_tree
     ng.nodes.clear()
-    out = ng.nodes.new("ShaderNodeOutputMaterial")
-    em  = ng.nodes.new("ShaderNodeEmission")
-    em.inputs["Color"].default_value    = (1.0, 0.85, 0.1, 1.0)  # yellow
-    em.inputs["Strength"].default_value = 3.0
-    ng.links.new(em.outputs["Emission"], out.inputs["Surface"])
+    out  = ng.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = ng.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Base Color"].default_value = (0.0, 0.0, 0.0, 1.0)  # black
+    bsdf.inputs["Roughness"].default_value  = 0.9
+    ng.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
 
@@ -524,8 +582,14 @@ def _handle(msg: dict):
         create_roads_batch(msg.get("roads", []))
 
     elif t == "reset":
-        reset_dwellings()
-        reset_roads()
+        full_reset_scene()
+
+    elif t == "employment_updates":
+        _employment.clear()
+        for b in msg.get("buildings", []):
+            _employment[(b["x"], b["y"])] = b["workers"]
+        if _scheme_enabled and _scheme["attribute"] == "employment":
+            recolor_all()
 
     elif t == "color_scheme":
         _scheme.update(msg["scheme"])
@@ -689,15 +753,6 @@ class NIMBY_OT_Stop(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class NIMBY_OT_Clear(bpy.types.Operator):
-    bl_idname      = "wm.nimby_clear"
-    bl_label       = "Clear Dwellings"
-    bl_description = "Remove all dwelling cubes (landscape is kept)"
-    def execute(self, _context):
-        reset_dwellings()
-        return {"FINISHED"}
-
-
 class NIMBY_OT_Recolor(bpy.types.Operator):
     bl_idname      = "wm.nimby_recolor"
     bl_label       = "Recolor All"
@@ -710,9 +765,9 @@ class NIMBY_OT_Recolor(bpy.types.Operator):
 class NIMBY_OT_Reset(bpy.types.Operator):
     bl_idname      = "wm.nimby_reset"
     bl_label       = "Reset"
-    bl_description = "Clear all dwellings in Blender and request a full model reset from Julia"
+    bl_description = "Completely reset the scene (dwellings, roads, landscape) and request a new model run from Julia"
     def execute(self, _context):
-        reset_dwellings()
+        full_reset_scene()
         if _ws is not None:
             try:
                 _ws.send(json.dumps({"type": "reset_request"}))
@@ -764,9 +819,10 @@ class NIMBYVisProps(bpy.types.PropertyGroup):
     cs_attribute: bpy.props.EnumProperty(
         name="Color by",
         items=[
-            ("budget",  "Budget",               "Occupant budget (0 = vacant)"),
-            ("height",  "Building height",       "Number of floors in building"),
-            ("density", "Neighbourhood density", "Mean height in neighbourhood"),
+            ("budget",     "Budget",               "Occupant budget (0 = vacant)"),
+            ("height",     "Building height",       "Number of floors in building"),
+            ("density",    "Neighbourhood density", "Mean height in neighbourhood"),
+            ("employment", "Employment",            "Number of workers employed at this building"),
         ],
         default="budget",
         update=_scheme_update,
@@ -812,7 +868,6 @@ class NIMBY_PT_Panel(bpy.types.Panel):
         row = box.row(align=True)
         row.operator("wm.nimby_start", icon="PLAY")
         row.operator("wm.nimby_stop",  icon="PAUSE")
-        box.operator("wm.nimby_clear", icon="TRASH")
         box.operator("wm.nimby_reset", icon="LOOP_BACK")
 
         box = layout.box()
@@ -838,7 +893,6 @@ _classes = [
     NIMBY_OT_Setup,
     NIMBY_OT_Start,
     NIMBY_OT_Stop,
-    NIMBY_OT_Clear,
     NIMBY_OT_Recolor,
     NIMBY_OT_Reset,
     NIMBY_PT_Panel,

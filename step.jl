@@ -1,4 +1,5 @@
 using Random
+using Random: shuffle
 using StatsBase: sample, Weights
 using Statistics: median
 
@@ -81,9 +82,14 @@ function search_candidates(
         end
         for b in city.buildings])
 
-    out = Vector{Int32}(undef, 2n)
+    out = Vector{Int32}(undef, 3n)
     for i in 1:2n
         out[i] = sample(rng, Int32(1):Int32(n_b), isodd(i) ? wA : wB)
+    end
+    # n uniform random draws — ensures every building has a baseline chance of
+    # discovery regardless of current height, preventing runaway tower formation.
+    for i in (2n+1):3n
+        out[i] = rand(rng, Int32(1):Int32(n_b))
     end
     return out
 end
@@ -226,14 +232,15 @@ function step!(
                 free_nids = [nid for nid in 1:length(city.neighborhoods)
                              if can_build_in_neighborhood(city, nid, nd_cache)]
                 if !isempty(free_nids)
+                    all_bids = shuffle(rng, [bid for nid in free_nids
+                                                 for bid in city.neighborhood_to_buildings[nid]])
                     best_bid = argmax(
                         bid -> begin
                             b_ = city.buildings[bid]
                             ed = effective_distance(city, b_, job_b, road_unit)
                             Float64(agent_utility(agent, b_, nd_cache, jpos; eff_dist=ed))
                         end,
-                        [bid for nid in free_nids
-                             for bid in city.neighborhood_to_buildings[nid]],
+                        all_bids,
                     )
                     build_and_move_in!(agent, city.buildings[best_bid], city)
                 end

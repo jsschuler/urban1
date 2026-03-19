@@ -137,13 +137,28 @@ function _simulate_hypothetical!(
     n_search::Int,
     agents_inflow::Int,
     road_unit::Float32 = 1f0,
+    allow_displacement::Bool = false,
+    incumbent_ids::Vector{Int32} = Int32[],
+    incumbent_mover_share::Float64 = 0.0,
+    incumbent_can_build::Bool = false,
 )
     for _ in 1:horizon
+        # Incumbent movers (mirrors existing_move_share logic in run_steps!)
+        if incumbent_mover_share > 0.0 && !isempty(incumbent_ids)
+            n_movers = clamp(round(Int, incumbent_mover_share * length(incumbent_ids)), 0, length(incumbent_ids))
+            if n_movers > 0
+                mover_ids = sample(rng, incumbent_ids, n_movers; replace=false)
+                step!(city; n_search=n_search, rng=rng, agent_ids=mover_ids,
+                      build_if_unhoused=incumbent_can_build, road_unit=road_unit,
+                      allow_displacement=allow_displacement)
+            end
+        end
+        # New inflow agents
         n_before = length(city.agents)
         agents_inflow > 0 && add_agents!(city, agents_inflow; rng=rng)
         n_after = length(city.agents)
         new_ids = n_after > n_before ? collect((n_before + 1):n_after) : Int[]
-        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true, road_unit=road_unit)
+        step!(city; n_search=n_search, rng=rng, agent_ids=new_ids, build_if_unhoused=true, road_unit=road_unit, allow_displacement=allow_displacement)
     end
     return city
 end
@@ -162,6 +177,9 @@ function evaluate_land_use_laws!(
     n_search::Int = 5,
     agents_inflow::Int = 100,
     road_unit::Float32 = 1f0,
+    allow_displacement::Bool = false,
+    incumbent_mover_share::Float64 = 0.0,
+    incumbent_can_build::Bool = false,
 )
     n_nh = length(city.neighborhoods)
     incumbent = _residents_by_neighborhood(city)
@@ -184,6 +202,8 @@ function evaluate_land_use_laws!(
         println("[LAW] considering neighbourhood $(nid)")
     end
 
+    all_incumbents = Int32[aid for aids in incumbent for aid in aids]
+
     seed = rand(rng, UInt)
     city_without = deepcopy(city)
     city_with    = deepcopy(city)
@@ -194,8 +214,10 @@ function evaluate_land_use_laws!(
 
     rng_without = MersenneTwister(seed)
     rng_with    = MersenneTwister(seed)
-    _simulate_hypothetical!(city_without, rng_without; horizon, n_search, agents_inflow, road_unit)
-    _simulate_hypothetical!(city_with,    rng_with;    horizon, n_search, agents_inflow, road_unit)
+    _simulate_hypothetical!(city_without, rng_without; horizon, n_search, agents_inflow, road_unit, allow_displacement,
+        incumbent_ids=all_incumbents, incumbent_mover_share, incumbent_can_build)
+    _simulate_hypothetical!(city_with,    rng_with;    horizon, n_search, agents_inflow, road_unit, allow_displacement,
+        incumbent_ids=all_incumbents, incumbent_mover_share, incumbent_can_build)
     nd_without = compute_nd_cache(city_without)
     nd_with    = compute_nd_cache(city_with)
 

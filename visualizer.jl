@@ -239,6 +239,33 @@ function send_step_diff!(vis::Visualizer, city::City)
     _send_chunked!(vis, "new_dwellings", "dwellings", new_payload)
     _send_chunked!(vis, "budget_updates", "updates", update_payload)
     send_new_roads!(vis, city)
+    send_employment_updates!(vis, city)
+end
+
+"""Send per-building worker counts to Blender for employment coloring."""
+function send_employment_updates!(vis::Visualizer, city::City)
+    isnothing(vis.ws[]) && return
+    counts = Dict{Int32, Int}()
+    if isempty(city.employers)
+        # Employer feature off: count all agents by their assigned job_building_id
+        for agent in city.agents
+            bid = agent.job_building_id
+            counts[bid] = get(counts, bid, 0) + 1
+        end
+    else
+        for emp in city.employers
+            n = length(emp.worker_ids)
+            n == 0 && continue
+            counts[emp.job_building_id] = get(counts, emp.job_building_id, 0) + n
+        end
+    end
+    isempty(counts) && return
+    payload = [Dict{String,Any}(
+        "x"       => Int(city.buildings[bid].pos.x),
+        "y"       => Int(city.buildings[bid].pos.y),
+        "workers" => n,
+    ) for (bid, n) in counts]
+    _send!(vis, Dict("type" => "employment_updates", "buildings" => payload))
 end
 
 """

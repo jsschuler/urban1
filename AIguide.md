@@ -235,6 +235,38 @@ No code changes. Key model behaviour clarified:
 - Once unhoused, an agent is processed as a mover with `build_if_unhoused=false` and cannot build their way out through the normal vacancy search.
 - **Fixed in session 8**: a Phase 2 fallback in `step.jl` now allows unhoused inflow agents to build in the best-utility building across all law-free neighbourhoods if the weighted candidate search fails. Agents can only remain permanently unhoused if every neighbourhood's active laws currently prohibit construction.
 
+### 2026-03-19 (session 9)
+
+#### `main.jl` — unhoused agents always re-housed
+- Bug: `existing_move_share` sampled a flat fraction of **all** agents (housed + unhoused), so displaced agents might wait many steps before getting a chance to rebuild — causing a growing unhoused backlog.
+- Fix: mover sampling now always steps every unhoused agent each tick, while `existing_move_share` is applied only to the housed pool. All unhoused movers are called with `build_if_unhoused=true`.
+
+#### `main.jl` — employer starts at city centre
+- Bug: employer was initialised at building ID 1 (position (0,0) — a corner). All workers had `job_building_id = 1`, so agents clustered at the corner and stacked into a massive tower there.
+- Fix: on creation, the employer is placed at the building nearest the geometric centre of the grid, computed from `city.n_x`, `city.n_y`, `city.k`.
+
+#### `blender_vis.py` — transparency for dwellings and landscape
+- Added `_DWELLING_ALPHA = 0.7` and `_LANDSCAPE_ALPHA = 0.3` constants.
+- `_get_dwelling_material`: sets `mat.blend_method = "BLEND"` and `bsdf.inputs["Alpha"].default_value = _DWELLING_ALPHA`.
+- `create_landscape`: sets `mat.blend_method = "BLEND"`, `mat.diffuse_color` alpha, and `bsdf.inputs["Alpha"].default_value = _LANDSCAPE_ALPHA` — makes ground plane semi-transparent so underground road tubes are visible.
+
+#### `blender_vis.py` — narrow black roads
+- `_ROAD_BEVEL` reduced from `1.5` → `0.3` (thin tube).
+- `_get_road_material` replaced bright yellow Emission shader with a black Principled BSDF (`Base Color = (0,0,0,1)`, `Roughness = 0.9`) — roads appear as narrow black lines visible against the transparent ground.
+
+#### `main.jl` + `index.html` — City Maps panel
+- `send_ctrl_stats!` now computes and broadcasts `nh_density` (per-neighbourhood median height array), `nh_employment` (worker count per neighbourhood), and `roads` (list of `[nid_a, nid_b]` pairs).
+- New **City Maps** panel in `index.html` with three `<canvas>` elements: neighbourhood density heatmap (green), employment heatmap (purple), road network (yellow edges + red connected nodes). Rendered by `drawNhMap()`.
+
+#### `main.jl` + `index.html` — complete parameter GUI with tooltips
+- `run_steps!` now accepts all 18 agent-distribution parameters (`budget_μ/σ`, `pref_density_μ/σ`, `pref_height_μ/σ`, `pref_nh_max/min_μ/σ`, `σ_neighborhood_μ/σ`, `σ_building_μ/σ`, `proximity_scale_μ/σ`, `copula_θ_μ/σ`) and forwards them to `add_agents!` each inflow step.
+- `_ctrl_loop!` city-rebuild logic extended to also handle a `k` parameter (neighbourhood side length).
+- `index.html` redesigned left column: parameters reorganised into sections (Simulation, City Grid, Land-Use Laws, Roads, Employer, Blender); new **Agent Distribution** panel with all 18 parameters in μ/σ pairs. Every field has a `ⓘ` icon with a hover tooltip (`data-tip` + CSS `::after`) explaining the parameter.
+
+#### `transport.jl` — road planner corner bias fixed
+- Bug: `evaluate_roads!` iterated pairs as `for a in 1:n, b in (a+1):n` with a strict `> best_score` update, so neighbourhood 1 (corner) always won ties (e.g. when all medians are 0 early in the run).
+- Fix: candidate pairs are now collected into a vector and shuffled via `shuffle!(rng, candidates)` before scoring, so ties resolve uniformly at random. `rng::AbstractRNG` added as a parameter; call site in `main.jl` passes the simulation RNG.
+
 ### 2026-03-12 (session 8)
 
 #### `structs.jl` — employer worker deduplication

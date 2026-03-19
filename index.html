@@ -56,6 +56,9 @@ input[type=number] {
 }
 input[type=number]:focus { outline: none; border-color: var(--accent); }
 
+/* 2-column param row (μ / σ pairs) */
+.param-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+
 /* Checkboxes */
 .check-field { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
 .check-field label { font-size: 0.75rem; color: var(--muted); margin: 0; }
@@ -162,6 +165,53 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
     display: block; width: 100%; height: 72px;
     border-radius: 4px; background: var(--input-bg);
 }
+
+/* City maps */
+.map-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+.map-canvas {
+    display: block; width: 100%; aspect-ratio: 1;
+    border-radius: 4px; background: var(--input-bg);
+}
+
+/* Tooltips — hover the ⓘ icon next to any label */
+.tip {
+    display: inline-block;
+    color: var(--muted);
+    font-size: 0.68rem;
+    cursor: help;
+    position: relative;
+    margin-left: 3px;
+    vertical-align: middle;
+    line-height: 1;
+}
+.tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 0; top: calc(100% + 5px);
+    width: 230px;
+    background: #070e1c;
+    border: 1px solid #1e4080;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 0.685rem;
+    color: #bcc8d8;
+    line-height: 1.45;
+    z-index: 300;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    white-space: normal;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.65);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.tip:hover::after { opacity: 1; }
 </style>
 </head>
 <body>
@@ -176,180 +226,343 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
 
 <div class="layout">
 
-    <!-- Left column: parameters + buttons -->
-    <div>
-        <div class="panel">
-            <h2>Parameters</h2>
-            <div class="field">
-                <label>Steps</label>
-                <input type="number" id="p-n_steps" value="1000" min="1">
-            </div>
-            <div class="field">
-                <label>Search candidates (n_search)</label>
-                <input type="number" id="p-n_search" value="5" min="1">
-            </div>
-            <div class="field">
-                <label>Agent inflow per step</label>
-                <input type="number" id="p-agents_inflow" value="100" min="0">
-            </div>
-            <div class="field">
-                <label>Existing mover share (0–1)</label>
-                <input type="number" id="p-existing_move_share" value="0.1" min="0" max="1" step="0.01">
-            </div>
-            <div class="check-field">
-                <input type="checkbox" id="p-allow_displacement">
-                <label for="p-allow_displacement">Allow budget displacement</label>
-            </div>
-            <div class="check-field">
-                <input type="checkbox" id="p-enable_roads">
-                <label for="p-enable_roads">Enable road planning</label>
-            </div>
-            <div class="check-field">
-                <input type="checkbox" id="p-enable_employer">
-                <label for="p-enable_employer">Enable employer relocation</label>
-            </div>
-            <div class="field">
-                <label>Employer eval every N steps</label>
-                <input type="number" id="p-employer_eval_every" value="1" min="1">
-            </div>
-            <div class="field">
-                <label>Employer candidates</label>
-                <input type="number" id="p-employer_n_candidates" value="5" min="1">
-            </div>
-            <div class="field">
-                <label>Employer branch horizon</label>
-                <input type="number" id="p-employer_horizon" value="3" min="1">
-            </div>
-            <div class="field">
-                <label>Road eval every N steps</label>
-                <input type="number" id="p-road_eval_every" value="20" min="1">
-            </div>
-            <div class="field">
-                <label>Road unit distance</label>
-                <input type="number" id="p-road_unit" value="2" min="0.1" step="0.1">
-            </div>
-            <div class="field">
-                <label>Blender update every N steps (0 = end)</label>
-                <input type="number" id="p-blender_update_every" value="0" min="0">
-            </div>
-            <div class="field">
-                <label>Land-use eval every N steps</label>
-                <input type="number" id="p-land_use_eval_every" value="10" min="0">
-            </div>
-            <div class="field">
-                <label>Land-use eval horizon (steps)</label>
-                <input type="number" id="p-land_use_eval_horizon" value="10" min="1">
-            </div>
-            <div class="field">
-                <label>Step delay (s)</label>
-                <input type="number" id="p-step_delay" value="0.1" min="0" step="0.01">
-            </div>
-            <div class="field">
-                <label>City side √neighborhoods (e.g. 10 → 10×10)</label>
-                <input type="number" id="p-n_neighborhoods_sqrt" value="10" min="1" max="30">
-            </div>
+<!-- Left column: parameters + buttons -->
+<div>
+    <div class="panel">
+        <h2>Simulation Parameters</h2>
 
-            <div class="buttons">
-                <button id="btn-start" onclick="sendStart()" disabled>Start</button>
-                <button id="btn-stop"  onclick="sendCmd('stop')"  disabled>Stop</button>
-                <button id="btn-reset" onclick="sendCmd('reset')" disabled>Reset</button>
+        <div class="field">
+            <label>Steps <span class="tip" data-tip="Number of simulation steps to run in this batch.">ⓘ</span></label>
+            <input type="number" id="p-n_steps" value="1000" min="1">
+        </div>
+        <div class="field">
+            <label>Search candidates <span class="tip" data-tip="Number of existing dwellings sampled per agent per step when searching for a home. Higher = better decisions, slower steps.">ⓘ</span></label>
+            <input type="number" id="p-n_search" value="5" min="1">
+        </div>
+        <div class="field">
+            <label>Agent inflow per step <span class="tip" data-tip="New agents added each step. Each searches for housing immediately (build if none found). Controlled by Agent Distribution parameters.">ⓘ</span></label>
+            <input type="number" id="p-agents_inflow" value="100" min="0">
+        </div>
+        <div class="field">
+            <label>Existing mover share (0–1) <span class="tip" data-tip="Fraction of currently housed agents who attempt to relocate each step. All unhoused agents always move. Higher = faster sorting, slower steps.">ⓘ</span></label>
+            <input type="number" id="p-existing_move_share" value="0.1" min="0" max="1" step="0.01">
+        </div>
+        <div class="field">
+            <label>Step delay (s) <span class="tip" data-tip="Real-time pause inserted after each step. Useful for slowing down the visualisation. 0 = run as fast as possible.">ⓘ</span></label>
+            <input type="number" id="p-step_delay" value="0.1" min="0" step="0.01">
+        </div>
+        <div class="check-field">
+            <input type="checkbox" id="p-allow_displacement">
+            <label for="p-allow_displacement">Allow budget displacement</label>
+            <span class="tip" data-tip="If checked, a richer agent can evict a poorer occupant from their home when no vacancy is found. Displaced agents immediately search for new housing.">ⓘ</span>
+        </div>
+
+        <h2 style="margin-top:14px">City Grid</h2>
+        <div class="field">
+            <label>City side √neighborhoods <span class="tip" data-tip="Square root of total neighbourhoods (e.g. 10 → 10×10 = 100 nbhds). Changing this rebuilds the city on next Start.">ⓘ</span></label>
+            <input type="number" id="p-n_neighborhoods_sqrt" value="10" min="1" max="30">
+        </div>
+        <div class="field">
+            <label>Neighbourhood side k <span class="tip" data-tip="Buildings per neighbourhood side; each neighbourhood has k×k buildings. Changing this rebuilds the city on next Start.">ⓘ</span></label>
+            <input type="number" id="p-k" value="8" min="1" max="20">
+        </div>
+
+        <h2 style="margin-top:14px">Land-Use Laws</h2>
+        <div class="field">
+            <label>Eval every N steps <span class="tip" data-tip="How often each neighbourhood runs a hypothetical branch pair (with-rule / without-rule) to evaluate a candidate land-use law.">ⓘ</span></label>
+            <input type="number" id="p-land_use_eval_every" value="10" min="0">
+        </div>
+        <div class="field">
+            <label>Eval horizon (steps) <span class="tip" data-tip="Number of steps simulated per hypothetical branch when evaluating a law. Longer horizon = more accurate prediction, slower evaluation.">ⓘ</span></label>
+            <input type="number" id="p-land_use_eval_horizon" value="10" min="1">
+        </div>
+        <div class="field">
+            <label>Incumbent mover share (0–1) <span class="tip" data-tip="Fraction of current residents who attempt to relocate inside the law-simulation branches. 0 = only new entrants move.">ⓘ</span></label>
+            <input type="number" id="p-law_incumbent_mover_share" value="0" min="0" max="1" step="0.01">
+        </div>
+        <div class="check-field">
+            <input type="checkbox" id="p-law_allow_displacement">
+            <label for="p-law_allow_displacement">Displacement in law sims</label>
+            <span class="tip" data-tip="Whether budget displacement is allowed inside the hypothetical branches used to evaluate land-use laws.">ⓘ</span>
+        </div>
+        <div class="check-field">
+            <input type="checkbox" id="p-law_incumbent_can_build">
+            <label for="p-law_incumbent_can_build">Incumbents can build in law sims</label>
+            <span class="tip" data-tip="If checked, incumbent residents may construct new dwellings during law-simulation branches (not just search existing vacancies).">ⓘ</span>
+        </div>
+
+        <h2 style="margin-top:14px">Roads</h2>
+        <div class="check-field">
+            <input type="checkbox" id="p-enable_roads">
+            <label for="p-enable_roads">Enable road planning</label>
+            <span class="tip" data-tip="When enabled, the model periodically evaluates whether adding a road between two neighbourhoods improves mean effective commute, and builds it if so.">ⓘ</span>
+        </div>
+        <div class="field">
+            <label>Road eval every N steps <span class="tip" data-tip="How often (in steps) road connectivity is re-evaluated.">ⓘ</span></label>
+            <input type="number" id="p-road_eval_every" value="20" min="1">
+        </div>
+        <div class="field">
+            <label>Road unit distance <span class="tip" data-tip="Effective distance credited per neighbourhood hop along a road (building units). Values < Euclidean hop distance make roads attractive for commuters.">ⓘ</span></label>
+            <input type="number" id="p-road_unit" value="2" min="0.1" step="0.1">
+        </div>
+
+        <h2 style="margin-top:14px">Employer</h2>
+        <div class="check-field">
+            <input type="checkbox" id="p-enable_employer">
+            <label for="p-enable_employer">Enable employer relocation</label>
+            <span class="tip" data-tip="A single employer periodically optimises its building location to minimise mean effective commute of its workers. Starts at the city centre.">ⓘ</span>
+        </div>
+        <div class="field">
+            <label>Eval every N steps <span class="tip" data-tip="How often (in steps) the employer re-evaluates its location.">ⓘ</span></label>
+            <input type="number" id="p-employer_eval_every" value="1" min="1">
+        </div>
+        <div class="field">
+            <label>Candidates <span class="tip" data-tip="Number of candidate buildings sampled (weighted by job_weight = height + 1) per employer location evaluation.">ⓘ</span></label>
+            <input type="number" id="p-employer_n_candidates" value="5" min="1">
+        </div>
+        <div class="field">
+            <label>Branch horizon (steps) <span class="tip" data-tip="Steps simulated per hypothetical branch in employer location evaluation. Longer = more accurate, slower.">ⓘ</span></label>
+            <input type="number" id="p-employer_horizon" value="3" min="1">
+        </div>
+
+        <h2 style="margin-top:14px">Blender</h2>
+        <div class="field">
+            <label>Update every N steps (0 = end) <span class="tip" data-tip="Send differential state to Blender every N steps. 0 = send only once at the end of the batch. Lower values give live updates but slow down the run.">ⓘ</span></label>
+            <input type="number" id="p-blender_update_every" value="0" min="0">
+        </div>
+
+        <div class="buttons">
+            <button id="btn-start" onclick="sendStart()" disabled>Start</button>
+            <button id="btn-stop"  onclick="sendCmd('stop')"  disabled>Stop</button>
+            <button id="btn-reset" onclick="sendCmd('reset')" disabled>Reset</button>
+        </div>
+    </div>
+
+    <!-- Agent Distribution panel -->
+    <div class="panel">
+        <h2>Agent Distribution <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(applied to each inflow batch)</span></h2>
+
+        <div class="hist-label" style="margin-bottom:7px">Budget (log-normal; median = exp(μ))</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Log-normal mean of agent budget. Median actual budget = exp(μ) ≈ 2.72 at default 1.0. Higher → wealthier agents.">ⓘ</span></label>
+                <input type="number" id="p-budget-mu" value="1.0" step="0.1">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Log-normal std of agent budget. Higher → greater wealth inequality (fatter tail).">ⓘ</span></label>
+                <input type="number" id="p-budget-sig" value="0.5" step="0.05" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Pref neighbourhood density (floors; normal)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Mean preferred median dwelling count per building in the agent's neighbourhood. Lower → prefer lower-density areas.">ⓘ</span></label>
+                <input type="number" id="p-pref-density-mu" value="3.0" step="0.5">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Spread of neighbourhood density preference across agents.">ⓘ</span></label>
+                <input type="number" id="p-pref-density-sig" value="2.0" step="0.5" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Pref neighbourhood max height (floors; normal)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Mean preferred maximum building height in the agent's neighbourhood (floors). Controls tolerance for tall buildings nearby.">ⓘ</span></label>
+                <input type="number" id="p-pref-nh-max-mu" value="6.0" step="0.5" min="1">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Spread of max-height preference across agents.">ⓘ</span></label>
+                <input type="number" id="p-pref-nh-max-sig" value="2.0" step="0.5" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Pref neighbourhood min height (floors; normal)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Mean preferred minimum building height in the neighbourhood (floors). Higher → agents want uniformly tall neighbourhoods.">ⓘ</span></label>
+                <input type="number" id="p-pref-nh-min-mu" value="1.0" step="0.5" min="0">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Spread of min-height preference across agents.">ⓘ</span></label>
+                <input type="number" id="p-pref-nh-min-sig" value="1.0" step="0.5" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Pref home building height (floors; normal)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Mean preferred number of floors in the agent's own building. Higher → agents favour taller buildings for themselves.">ⓘ</span></label>
+                <input type="number" id="p-pref-height-mu" value="3.0" step="0.5">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Spread of home building-height preference across agents.">ⓘ</span></label>
+                <input type="number" id="p-pref-height-sig" value="2.0" step="0.5" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Neighbourhood sensitivity σ_nbhd (log-normal log-scale)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Log-normal log-scale mean of neighbourhood sensitivity σ_nbhd. Median σ_nbhd = exp(μ) ≈ 0.61 at default −0.5. Higher → agents more strongly penalised for density/height mismatches.">ⓘ</span></label>
+                <input type="number" id="p-sigma-nh-mu" value="-0.5" step="0.1">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Log-normal log-scale std of neighbourhood sensitivity. Controls heterogeneity in how strongly agents care about neighbourhood character.">ⓘ</span></label>
+                <input type="number" id="p-sigma-nh-sig" value="0.3" step="0.05" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Building sensitivity σ_bldg (log-normal log-scale)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Log-normal log-scale mean of building-height sensitivity σ_bldg. Median σ_bldg = exp(μ). Higher → agents care more about their home building's exact height.">ⓘ</span></label>
+                <input type="number" id="p-sigma-bldg-mu" value="-0.5" step="0.1">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Log-normal log-scale std of building sensitivity. Controls heterogeneity in building-height preference strength.">ⓘ</span></label>
+                <input type="number" id="p-sigma-bldg-sig" value="0.3" step="0.05" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Proximity decay scale (building units; log-normal log-scale)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Log-normal log-scale mean of job-distance decay scale (building units). Median scale = exp(μ) ≈ 12 at default 2.5. Higher → agents tolerate longer commutes.">ⓘ</span></label>
+                <input type="number" id="p-prox-scale-mu" value="2.5" step="0.1">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Log-normal log-scale std of proximity scale. Higher → more heterogeneous commute tolerance across agents.">ⓘ</span></label>
+                <input type="number" id="p-prox-scale-sig" value="0.5" step="0.05" min="0.01">
+            </div>
+        </div>
+
+        <div class="hist-label" style="margin-bottom:7px;margin-top:6px">Frank copula θ (log-normal log-scale)</div>
+        <div class="param-pair">
+            <div class="field">
+                <label>μ <span class="tip" data-tip="Log-normal log-scale mean of Frank copula dependence parameter θ. Median θ = exp(μ) ≈ 2.0 at default 0.7. Higher θ → stronger positive correlation between utility dimensions (agents who get good proximity also weight other dimensions more).">ⓘ</span></label>
+                <input type="number" id="p-copula-theta-mu" value="0.7" step="0.1">
+            </div>
+            <div class="field">
+                <label>σ <span class="tip" data-tip="Log-normal log-scale std of copula θ. Controls heterogeneity in inter-dimension dependence across agents.">ⓘ</span></label>
+                <input type="number" id="p-copula-theta-sig" value="0.4" step="0.05" min="0.01">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Middle column: stats + log -->
+<div>
+    <div class="panel">
+        <h2>Live Stats</h2>
+        <div class="stats-grid">
+            <div class="stat"><div class="stat-label">Step</div>      <div class="stat-value" id="s-step">—</div></div>
+            <div class="stat"><div class="stat-label">Agents</div>    <div class="stat-value" id="s-agents">—</div></div>
+            <div class="stat"><div class="stat-label">Housed</div>    <div class="stat-value" id="s-housed">—</div></div>
+            <div class="stat"><div class="stat-label">Dwellings</div> <div class="stat-value" id="s-dwellings">—</div></div>
+            <div class="stat"><div class="stat-label">Vacant</div>    <div class="stat-value" id="s-vacant">—</div></div>
+            <div class="stat"><div class="stat-label">Mean height</div><div class="stat-value" id="s-h_mean">—</div></div>
+            <div class="stat"><div class="stat-label">Max height</div> <div class="stat-value" id="s-h_max">—</div></div>
+            <div class="stat"><div class="stat-label">Step time</div>  <div class="stat-value" id="s-elapsed">—</div></div>
+            <div class="stat"><div class="stat-label">Laws %</div>     <div class="stat-value" id="s-pct-laws">—</div></div>
+            <div class="stat"><div class="stat-label">Roads</div>      <div class="stat-value" id="s-n-roads">—</div></div>
+            <div class="stat"><div class="stat-label">Emp workers</div> <div class="stat-value" id="s-emp-workers">—</div></div>
+            <div class="stat"><div class="stat-label">Emp location</div><div class="stat-value" id="s-emp-pos" style="font-size:0.9rem">—</div></div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>City Maps</h2>
+        <div class="map-row">
+            <div>
+                <div class="hist-label">Nbhd density</div>
+                <canvas id="map-density"    class="map-canvas"></canvas>
+            </div>
+            <div>
+                <div class="hist-label">Employment</div>
+                <canvas id="map-employment" class="map-canvas"></canvas>
+            </div>
+            <div>
+                <div class="hist-label">Road network</div>
+                <canvas id="map-roads"      class="map-canvas"></canvas>
             </div>
         </div>
     </div>
 
-    <!-- Right column: stats + log -->
-    <div>
-        <div class="panel">
-            <h2>Live Stats</h2>
-            <div class="stats-grid">
-                <div class="stat"><div class="stat-label">Step</div>      <div class="stat-value" id="s-step">—</div></div>
-                <div class="stat"><div class="stat-label">Agents</div>    <div class="stat-value" id="s-agents">—</div></div>
-                <div class="stat"><div class="stat-label">Housed</div>    <div class="stat-value" id="s-housed">—</div></div>
-                <div class="stat"><div class="stat-label">Dwellings</div> <div class="stat-value" id="s-dwellings">—</div></div>
-                <div class="stat"><div class="stat-label">Vacant</div>    <div class="stat-value" id="s-vacant">—</div></div>
-                <div class="stat"><div class="stat-label">Mean height</div><div class="stat-value" id="s-h_mean">—</div></div>
-                <div class="stat"><div class="stat-label">Max height</div> <div class="stat-value" id="s-h_max">—</div></div>
-                <div class="stat"><div class="stat-label">Step time</div>  <div class="stat-value" id="s-elapsed">—</div></div>
-                <div class="stat"><div class="stat-label">Laws %</div>     <div class="stat-value" id="s-pct-laws">—</div></div>
-                <div class="stat"><div class="stat-label">Roads</div>      <div class="stat-value" id="s-n-roads">—</div></div>
-                <div class="stat"><div class="stat-label">Emp workers</div> <div class="stat-value" id="s-emp-workers">—</div></div>
-                <div class="stat"><div class="stat-label">Emp location</div><div class="stat-value" id="s-emp-pos" style="font-size:0.9rem">—</div></div>
+    <div class="panel">
+        <h2>Realized Utility <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(housed agents · utility ∈ [0,1] · 20 bins)</span></h2>
+        <div class="hist-grid">
+            <div>
+                <div class="hist-label">Overall utility (copula)</div>
+                <canvas id="hist-overall"   class="hist-canvas"></canvas>
             </div>
-        </div>
-
-        <div class="panel">
-            <h2>Realized Utility <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(housed agents · utility ∈ [0,1] · 20 bins)</span></h2>
-            <div class="hist-grid">
-                <div>
-                    <div class="hist-label">Overall utility (copula)</div>
-                    <canvas id="hist-overall"   class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Proximity utility</div>
-                    <canvas id="hist-proximity" class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Nbhd density utility</div>
-                    <canvas id="hist-nh"        class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Nbhd max height utility</div>
-                    <canvas id="hist-nh-max"    class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Nbhd min height utility</div>
-                    <canvas id="hist-nh-min"    class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Building height utility</div>
-                    <canvas id="hist-bldg"      class="hist-canvas"></canvas>
-                </div>
+            <div>
+                <div class="hist-label">Proximity utility</div>
+                <canvas id="hist-proximity" class="hist-canvas"></canvas>
             </div>
-        </div>
-
-        <div class="panel">
-            <h2>Preferred Values <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(all agents · back-transformed modal · floors · 20 bins · 0–20)</span></h2>
-            <div class="hist-grid-4">
-                <div>
-                    <div class="hist-label">Pref nbhd density</div>
-                    <canvas id="modal-density" class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Pref nbhd max height</div>
-                    <canvas id="modal-nh-max"  class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Pref nbhd min height</div>
-                    <canvas id="modal-nh-min"  class="hist-canvas"></canvas>
-                </div>
-                <div>
-                    <div class="hist-label">Pref building height</div>
-                    <canvas id="modal-bldg"    class="hist-canvas"></canvas>
-                </div>
+            <div>
+                <div class="hist-label">Nbhd density utility</div>
+                <canvas id="hist-nh"        class="hist-canvas"></canvas>
             </div>
-        </div>
-
-        <div class="panel">
-            <h2>Log</h2>
-            <div class="log" id="log"></div>
-        </div>
-    </div>
-
-    <!-- Third column: laws panel -->
-    <div class="laws-col">
-        <div class="panel">
-            <h2>Land Use Laws</h2>
-            <div id="nh-grid" class="nh-grid"></div>
-            <div id="law-list-section" style="display:none">
-                <h2 id="law-list-title" style="margin-bottom:8px">—</h2>
-                <div id="law-list"></div>
+            <div>
+                <div class="hist-label">Nbhd max height utility</div>
+                <canvas id="hist-nh-max"    class="hist-canvas"></canvas>
             </div>
-            <div id="tree-section" style="display:none;margin-top:14px">
-                <h2 id="tree-title" style="margin-bottom:6px">Law tree</h2>
-                <div class="tree-wrap" id="tree-svg-wrap"></div>
+            <div>
+                <div class="hist-label">Nbhd min height utility</div>
+                <canvas id="hist-nh-min"    class="hist-canvas"></canvas>
+            </div>
+            <div>
+                <div class="hist-label">Building height utility</div>
+                <canvas id="hist-bldg"      class="hist-canvas"></canvas>
             </div>
         </div>
     </div>
+
+    <div class="panel">
+        <h2>Preferred Values <span style="font-weight:400;text-transform:none;letter-spacing:normal;font-size:0.65rem;color:var(--muted)">(all agents · back-transformed modal · floors · 20 bins · 0–20)</span></h2>
+        <div class="hist-grid-4">
+            <div>
+                <div class="hist-label">Pref nbhd density</div>
+                <canvas id="modal-density" class="hist-canvas"></canvas>
+            </div>
+            <div>
+                <div class="hist-label">Pref nbhd max height</div>
+                <canvas id="modal-nh-max"  class="hist-canvas"></canvas>
+            </div>
+            <div>
+                <div class="hist-label">Pref nbhd min height</div>
+                <canvas id="modal-nh-min"  class="hist-canvas"></canvas>
+            </div>
+            <div>
+                <div class="hist-label">Pref building height</div>
+                <canvas id="modal-bldg"    class="hist-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Log</h2>
+        <div class="log" id="log"></div>
+    </div>
+</div>
+
+<!-- Third column: laws panel -->
+<div class="laws-col">
+    <div class="panel">
+        <h2>Land Use Laws</h2>
+        <div id="nh-grid" class="nh-grid"></div>
+        <div id="law-list-section" style="display:none">
+            <h2 id="law-list-title" style="margin-bottom:8px">—</h2>
+            <div id="law-list"></div>
+        </div>
+        <div id="tree-section" style="display:none;margin-top:14px">
+            <h2 id="tree-title" style="margin-bottom:6px">Law tree</h2>
+            <div class="tree-wrap" id="tree-svg-wrap"></div>
+        </div>
+    </div>
+</div>
 
 </div>
 
@@ -483,20 +696,22 @@ function connect() {
             drawHist("modal-nh-max",  msg.modal_nh_max,  fl);
             drawHist("modal-nh-min",  msg.modal_nh_min,  fl);
             drawHist("modal-bldg",    msg.modal_bldg,    fl);
+            const nSqrt = Math.round(Math.sqrt(msg.n_neighborhoods || 100));
+            drawNhMap("map-density",    nSqrt, msg.nh_density,    [76, 175, 80],   null);
+            drawNhMap("map-employment", nSqrt, msg.nh_employment, [206, 147, 216], null);
+            drawNhMap("map-roads",      nSqrt, null,              null,            msg.roads);
         }
     };
 }
 
 // ── Histograms ────────────────────────────────────────────
 const HIST_COLORS = {
-    // Realized utility (utility space 0–1)
     "hist-overall":   "#4caf50",
     "hist-proximity": "#42a5f5",
     "hist-nh":        "#26c6da",
     "hist-nh-max":    "#00acc1",
     "hist-nh-min":    "#0097a7",
     "hist-bldg":      "#ffa726",
-    // Preferred values (dimension space, floors)
     "modal-density":  "#ab47bc",
     "modal-nh-max":   "#9c27b0",
     "modal-nh-min":   "#7b1fa2",
@@ -528,7 +743,6 @@ function drawHist(id, bins, xLabels = ["0", "0.5", "1"]) {
         ctx.fillRect(pl + i * bw, pt + ph - bh, Math.max(bw - 1, 1), bh);
     }
 
-    // baseline
     ctx.strokeStyle = "#1e2a3a";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -536,13 +750,79 @@ function drawHist(id, bins, xLabels = ["0", "0.5", "1"]) {
     ctx.lineTo(pl + pw, pt + ph + 0.5);
     ctx.stroke();
 
-    // x-axis labels
     ctx.fillStyle = "#7a8599";
     ctx.font = "9px monospace";
     ctx.textBaseline = "bottom";
     ctx.textAlign = "left";   ctx.fillText(xLabels[0], pl,     H);
     ctx.textAlign = "center"; ctx.fillText(xLabels[1], W / 2,  H);
     ctx.textAlign = "right";  ctx.fillText(xLabels[2], W - pr, H);
+}
+
+// ── City maps ─────────────────────────────────────────────
+function drawNhMap(canvasId, nSqrt, values, highRGB, roads) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || nSqrt === 0) return;
+    const W = canvas.offsetWidth;
+    if (W === 0) return;
+    canvas.width  = W;
+    canvas.height = W;
+    const ctx = canvas.getContext("2d");
+    const cw  = W / nSqrt;
+    const ch  = W / nSqrt;
+
+    ctx.fillStyle = "#0d1b2a";
+    ctx.fillRect(0, 0, W, W);
+
+    if (values && highRGB) {
+        const maxV = Math.max(...values, 0.001);
+        for (let i = 0; i < values.length; i++) {
+            const t   = Math.min(values[i] / maxV, 1);
+            const col = i % nSqrt;
+            const row = Math.floor(i / nSqrt);
+            ctx.fillStyle = `rgba(${highRGB[0]},${highRGB[1]},${highRGB[2]},${(0.08 + t * 0.92).toFixed(2)})`;
+            ctx.fillRect(col * cw, row * ch, cw, ch);
+        }
+    }
+
+    ctx.strokeStyle = "rgba(15,52,96,0.6)";
+    ctx.lineWidth   = 0.5;
+    for (let i = 1; i < nSqrt; i++) {
+        ctx.beginPath(); ctx.moveTo(i * cw, 0);    ctx.lineTo(i * cw, W);    ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,      i * ch); ctx.lineTo(W,      i * ch); ctx.stroke();
+    }
+
+    if (roads && roads.length > 0) {
+        const connected = new Set();
+        ctx.strokeStyle = "rgba(255,193,7,0.9)";
+        ctx.lineWidth   = Math.max(1, cw * 0.12);
+        ctx.lineCap     = "round";
+        for (const [a, b] of roads) {
+            const ia = a - 1, ib = b - 1;
+            const ax = (ia % nSqrt + 0.5) * cw, ay = (Math.floor(ia / nSqrt) + 0.5) * ch;
+            const bx = (ib % nSqrt + 0.5) * cw, by = (Math.floor(ib / nSqrt) + 0.5) * ch;
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+            connected.add(a); connected.add(b);
+        }
+        if (!values) {
+            ctx.fillStyle = "rgba(122,133,153,0.35)";
+            for (let i = 0; i < nSqrt * nSqrt; i++) {
+                const cx = (i % nSqrt + 0.5) * cw, cy = (Math.floor(i / nSqrt) + 0.5) * ch;
+                ctx.beginPath(); ctx.arc(cx, cy, Math.max(1.5, cw * 0.1), 0, 2 * Math.PI); ctx.fill();
+            }
+            ctx.fillStyle = "#e94560";
+            for (const nid of connected) {
+                const idx = nid - 1;
+                const cx = (idx % nSqrt + 0.5) * cw, cy = (Math.floor(idx / nSqrt) + 0.5) * ch;
+                ctx.beginPath(); ctx.arc(cx, cy, Math.max(2, cw * 0.15), 0, 2 * Math.PI); ctx.fill();
+            }
+        }
+    } else if (!values) {
+        ctx.fillStyle   = "#7a8599";
+        ctx.font        = `${Math.max(9, Math.round(cw * 0.7))}px monospace`;
+        ctx.textAlign   = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("no roads yet", W / 2, W / 2);
+    }
 }
 
 // ── Commands ──────────────────────────────────────────────
@@ -560,6 +840,7 @@ function sendStart() {
         agents_inflow:         num("p-agents_inflow"),
         existing_move_share:   num("p-existing_move_share"),
         allow_displacement:    document.getElementById("p-allow_displacement").checked,
+        law_allow_displacement: document.getElementById("p-law_allow_displacement").checked,
         enable_roads:          document.getElementById("p-enable_roads").checked,
         enable_employer:       document.getElementById("p-enable_employer").checked,
         employer_eval_every:   num("p-employer_eval_every"),
@@ -568,10 +849,32 @@ function sendStart() {
         road_eval_every:       num("p-road_eval_every"),
         road_unit:             num("p-road_unit"),
         blender_update_every:  num("p-blender_update_every"),
-        land_use_eval_every:   num("p-land_use_eval_every"),
-        land_use_eval_horizon: num("p-land_use_eval_horizon"),
+        land_use_eval_every:          num("p-land_use_eval_every"),
+        land_use_eval_horizon:        num("p-land_use_eval_horizon"),
+        law_incumbent_mover_share:    num("p-law_incumbent_mover_share"),
+        law_incumbent_can_build:      document.getElementById("p-law_incumbent_can_build").checked,
         step_delay:            num("p-step_delay"),
         n_neighborhoods_sqrt:  num("p-n_neighborhoods_sqrt"),
+        k:                     num("p-k"),
+        // Agent distribution
+        "budget_μ":             num("p-budget-mu"),
+        "budget_σ":             num("p-budget-sig"),
+        "pref_density_μ":       num("p-pref-density-mu"),
+        "pref_density_σ":       num("p-pref-density-sig"),
+        "pref_nh_max_height_μ": num("p-pref-nh-max-mu"),
+        "pref_nh_max_height_σ": num("p-pref-nh-max-sig"),
+        "pref_nh_min_height_μ": num("p-pref-nh-min-mu"),
+        "pref_nh_min_height_σ": num("p-pref-nh-min-sig"),
+        "pref_height_μ":        num("p-pref-height-mu"),
+        "pref_height_σ":        num("p-pref-height-sig"),
+        "σ_neighborhood_μ":     num("p-sigma-nh-mu"),
+        "σ_neighborhood_σ":     num("p-sigma-nh-sig"),
+        "σ_building_μ":         num("p-sigma-bldg-mu"),
+        "σ_building_σ":         num("p-sigma-bldg-sig"),
+        "proximity_scale_μ":    num("p-prox-scale-mu"),
+        "proximity_scale_σ":    num("p-prox-scale-sig"),
+        "copula_θ_μ":           num("p-copula-theta-mu"),
+        "copula_θ_σ":           num("p-copula-theta-sig"),
     });
     log("Start sent (" + num("p-n_steps") + " steps)", "info");
 }
@@ -645,8 +948,6 @@ function selectLaw(nid, idx) {
 }
 
 function renderTree(tree) {
-    // Fixed depth-2 layout: W=200, H=175
-    // Centres: root(100,28) left(50,88) right(150,88) ll(25,148) lr(75,148) rl(125,148) rr(175,148)
     const W = 200, H = 175;
     const pos = {
         root:  [100, 28],
@@ -680,11 +981,9 @@ function renderTree(tree) {
     }
 
     let s = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
-    // edges
     s += edge("root", "left") + edge("root", "right");
     if (tree.left)  { s += edge("left",  "ll") + edge("left",  "lr"); }
     if (tree.right) { s += edge("right", "rl") + edge("right", "rr"); }
-    // nodes (drawn after edges so they sit on top)
     s += drawNode("root", tree);
     if (tree.left)       s += drawNode("left",  tree.left);
     if (tree.right)      s += drawNode("right", tree.right);
