@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025/Homebrew) (preloaded format=pdflatex 2025.3.15)  19 MAR 2026 21:57
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025/Homebrew) (preloaded format=pdflatex 2025.3.15)  19 MAR 2026 22:12
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1464,10 +1464,10 @@ Package rerunfilecheck Info: File `talk.out' has not changed.
 (rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
  ) 
 Here is how much of TeX's memory you used:
- 36617 strings out of 473190
- 885866 string characters out of 5704335
- 1389732 words of memory out of 5000000
- 59160 multiletter control sequences out of 15000+600000
+ 36615 strings out of 473190
+ 885827 string characters out of 5704335
+ 1388758 words of memory out of 5000000
+ 59158 multiletter control sequences out of 15000+600000
  575367 words of font info for 100 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  128i,18n,123p,725b,2210s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -1496,7 +1496,7 @@ ts/type1/public/amsfonts/cm/cmtt12.pfb></opt/homebrew/Cellar/texlive/20250308_1
 /share/texmf-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb></opt/homebrew
 /Cellar/texlive/20250308_1/share/texmf-dist/fonts/type1/public/amsfonts/symbols
 /msam7.pfb>
-Output written on talk.pdf (27 pages, 516580 bytes).
+Output written on talk.pdf (27 pages, 516587 bytes).
 PDF statistics:
  817 PDF objects out of 1000 (max. 8388607)
  733 compressed objects within 8 object streams
