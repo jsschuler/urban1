@@ -143,9 +143,9 @@
     \textcolor{nimbygray}{Parameter} & \textcolor{nimbygray}{Meaning} & \textcolor{nimbygray}{Distribution} \\
     \midrule
     $b_i$ & budget & log-normal \\
-    $\bar{d}_i$ & preferred neighborhood density & log-normal \\
-    $\bar{h}^{\max}_i,\; \bar{h}^{\min}_i$ & preferred max/min heights & log-normal \\
-    $\bar{h}_i$ & preferred building height & log-normal \\
+    $\bar{d}_i$ & preferred neighborhood density & truncated normal \\
+    $\bar{h}^{\max}_i,\; \bar{h}^{\min}_i$ & preferred max/min heights & truncated normal \\
+    $\bar{h}_i$ & preferred building height & truncated normal \\
     $\sigma^{nh}_i,\; \sigma^{b}_i$ & sensitivity to deviations & log-normal \\
     $\lambda_i$ & proximity decay scale & log-normal \\
     $\theta_i$ & Frank copula dependence & log-normal \\
@@ -177,7 +177,7 @@
       xticklabel style={color=white, font=\small},
       grid=major, grid style={color=gray!25},
       legend style={fill=black, draw=white, text=white, font=\tiny,
-                    at={(0.5,-0.45)}, anchor=north, legend columns=-1},
+                    at={(0.5,-0.62)}, anchor=north, legend columns=-1},
     ]
       \addplot[nimbyblue,   thick, domain=0:1, samples=60] {exp(-3*(1-x))};
       \addlegendentry{proximity}
@@ -417,6 +417,45 @@
   \end{center}
 \end{frame}
 
+\begin{frame}
+  \frametitle{The Research Travelogue: Kepler}
+  \begin{columns}
+    \column{0.42\textwidth}
+    \includegraphics[width=\linewidth, keepaspectratio]{kepler.jpg}
+    \column{0.58\textwidth}
+    \textcolor{nimbyyellow}{\textbf{Kepler's \textit{Astronomia Nova} (1609):}}
+    \begin{itemize}
+      \small
+      \item Introduces elliptical planetary orbits
+      \item \emph{Includes} every false start, dead end, and discarded hypothesis
+      \item Reads as a journey, not a textbook
+    \end{itemize}
+    \vspace{0.5em}
+    \textcolor{nimbygray}{\small Most books and papers present a single clean,\\
+    pedagogical order — the travelogue is hidden.\\[0.3em]
+    The travelogue can be valuable\\
+    but is difficult to read.}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+  \frametitle{The Research Travelogue: \texttt{AIguide.md}}
+  \textcolor{nimbygreen}{\textbf{The \texttt{AIguide.md} as modern travelogue:}}
+  \begin{itemize}
+    \item Records each session with Claude — design intent, not just code
+    \item Includes pivots, bugs, and discarded approaches
+    \item The model as built \emph{cannot} be recovered from the code alone
+  \end{itemize}
+  \vspace{0.6em}
+  \textcolor{nimbygray}{\small Just as \textit{Astronomia Nova} shows how Kepler \emph{arrived} at ellipses,\\
+  the AI session log shows how the model arrived at its current design.}
+  \vspace{0.5em}
+  \begin{center}
+    \textcolor{nimbyblue}{AI-assisted research may routinely produce travelogue artifacts\\
+    — a new kind of research record worth preserving.}
+  \end{center}
+\end{frame}
+
 % =====================================================================
 %  SECTION 4 — PARAMETER SWEEPS
 % =====================================================================
@@ -424,10 +463,10 @@
 \begin{frame}
   \frametitle{Research Questions for the Sweep}
   \begin{enumerate}
-    \item How does \textcolor{nimbyblue}{preference correlation} ($\theta$) affect law adoption rates?
-    \item Does a \textcolor{nimbyyellow}{longer voting horizon} ($H$) produce more or less restrictive cities?
-    \item When does the city tip from \textcolor{nimbygreen}{low-density equilibrium} to \textcolor{nimbyred}{high-density equilibrium}?
-    \item What is the \textcolor{white}{unhoused fraction} as a function of law frequency?
+    \item Does a \textcolor{nimbyblue}{longer voting horizon} ($H$) produce more or less restrictive cities?
+    \item What is the \textcolor{nimbyyellow}{unhoused fraction} as a function of law frequency ($T$)?
+    \item How does \textcolor{nimbygreen}{city density} ($n_{\sqrt{\phantom{x}}}$) shape law adoption and housing outcomes?
+    \item Does a \textcolor{white}{road network} change zoning dynamics?
   \end{enumerate}
 \end{frame}
 
@@ -437,127 +476,147 @@
   \renewcommand{\arraystretch}{1.3}
   \begin{tabular}{llll}
     \toprule
-    \textcolor{nimbygray}{Parameter} & \textcolor{nimbygray}{Meaning} & \textcolor{nimbygray}{Values} & \textcolor{nimbygray}{Axis} \\
+    \textcolor{nimbygray}{Parameter} & \textcolor{nimbygray}{Meaning} & \textcolor{nimbygray}{Values} \\
     \midrule
-    $\theta_\mu$ & copula dependence & 0.5, 2, 5, 10 & A \\
-    $H$ & law eval horizon & 5, 10, 20 & B \\
-    $T$ & law eval every $N$ steps & 5, 10, 20 & C \\
-    $\sigma^{nh}_\mu$ (log) & density sensitivity & $-1, -0.5, 0, 0.5$ & D \\
+    \texttt{enable\_roads} & transport network on/off & false, true \\
+    $T$ & law eval every $N$ steps & 5, 10, 20 \\
+    $H$ & law eval horizon (look-ahead) & 3, 7, 15 \\
+    $n_{\sqrt{\phantom{x}}}$ & city side (neighborhoods) & 6, 8, 10 \\
+    seed & replication & 42, 137, 999 \\
     \bottomrule
   \end{tabular}
   \end{center}
-  \vspace{0.5em}
-  \textbf{Focused design}: sweep axes A $\times$ B (4$\times$3 = 12 cells)\\
-  $\times$ 3 replications $\times$ 200 steps each = \textbf{36 runs overnight}\\[0.3em]
-  Fix $T=10$, $\sigma^{nh}_\mu = -0.5$ (tight preferences); vary $\theta$ and $H$.\\[0.5em]
-  \small Outcome variables: \% neighborhoods with active law, mean height, unhoused \%, employer displacement.
+  \vspace{0.4em}
+  $2 \times 3 \times 3 \times 3 \times 3 = \mathbf{162}$ configurations,
+  $\times$ 100 steps each.\\[0.3em]
+  Population \textbf{fixed}: 500 initial $+$ 50 inflow/step across all city sizes\\
+  $\Rightarrow$ density varies with $n_{\sqrt{\phantom{x}}}$.\\[0.4em]
+  \small Outcome variables: \% neighborhoods with active law, mean building height, unhoused fraction.
 \end{frame}
 
-% --- result placeholder: heatmap ------------------------------------
+% --- result 1: heatmap (real data) ----------------------------------
 \begin{frame}
-  \frametitle{Expected Result: Law Adoption Heatmap}
+  \frametitle{Law Adoption: \% Neighborhoods with Active Law (Step 100)}
   \begin{center}
-  % Pure TikZ heatmap — no matrix plot* dependency
-  % Rows = H (horizon), Cols = theta.  Value = % nh with active law (PLACEHOLDER).
+  % Pure TikZ heatmap — rows = H (horizon), cols = T (law_every).
+  % Values = mean pct_laws at step 100, averaged over seeds × n_sqrt × roads (n=18/cell).
   \begin{tikzpicture}[font=\small]
-    \def\cw{2.2}  % cell width
-    \def\ch{1.4}  % cell height
-    % Data: {col/row/value} — col 0-3 = θ ∈ {0.5,2,5,10}, row 0-2 = H ∈ {5,10,20}
+    \def\cw{2.6}  % cell width
+    \def\ch{1.5}  % cell height
+    % Data: col 0-2 = T ∈ {5,10,20}, row 0-2 = H ∈ {3,7,15}
     \foreach \col/\row/\val in {
-        0/0/15, 1/0/25, 2/0/45, 3/0/60,
-        0/1/20, 1/1/38, 2/1/62, 3/1/78,
-        0/2/28, 1/2/50, 2/2/74, 3/2/88} {
+        0/0/83, 1/0/52, 2/0/25,
+        0/1/98, 1/1/85, 2/1/52,
+        0/2/100, 1/2/97, 2/2/79} {
       \fill[red!\val!black]
         (\col*\cw, \row*\ch) rectangle (\col*\cw+\cw, \row*\ch+\ch);
       \node[white, font=\footnotesize] at (\col*\cw+\cw/2, \row*\ch+\ch/2)
         {\val\%};
     }
-    % Column labels (θ)
-    \foreach \col/\lbl in {0/$0.5$, 1/$2$, 2/$5$, 3/$10$} {
+    % Column labels (T)
+    \foreach \col/\lbl in {0/$5$, 1/$10$, 2/$20$} {
       \node[white, below, font=\small] at (\col*\cw+\cw/2, 0) {\lbl};
     }
     % Row labels (H)
-    \foreach \row/\lbl in {0/$5$, 1/$10$, 2/$20$} {
+    \foreach \row/\lbl in {0/$3$, 1/$7$, 2/$15$} {
       \node[white, left, font=\small] at (0, \row*\ch+\ch/2) {\lbl};
     }
     % Axis titles
-    \node[white, below=0.55cm, font=\small] at (2*\cw, 0)
-      {Copula dependence $\theta_\mu$};
+    \node[white, below=0.55cm, font=\small] at (1.5*\cw, 0)
+      {Law frequency $T$ (steps between votes)};
     \node[white, rotate=90, font=\small] at (-1.1, 1.5*\ch)
       {Horizon $H$};
     % Colour scale bar (right side)
     \foreach \i in {0,1,...,9} {
       \fill[red!\i0!black]
-        (4*\cw+0.35, \i*3*\ch/10) rectangle (4*\cw+0.75, \i*3*\ch/10+3*\ch/10);
+        (3*\cw+0.35, \i*3*\ch/10) rectangle (3*\cw+0.75, \i*3*\ch/10+3*\ch/10);
     }
-    \node[white, font=\tiny, right] at (4*\cw+0.75, 0)       {0\%};
-    \node[white, font=\tiny, right] at (4*\cw+0.75, 3*\ch)    {100\%};
-    \node[nimbyyellow, font=\tiny]  at (2*\cw, 3*\ch+0.4)     {PLACEHOLDER};
+    \node[white, font=\tiny, right] at (3*\cw+0.75, 0)       {0\%};
+    \node[white, font=\tiny, right] at (3*\cw+0.75, 3*\ch)    {100\%};
   \end{tikzpicture}
   \end{center}
-  \small Higher $\theta$ and longer horizon $\Rightarrow$ more restrictive laws.
+  \small Longer horizon $H$ and more frequent votes (smaller $T$) $\Rightarrow$ more restrictive cities.
+  Averaged over city size and seed ($n=18$ per cell).
 \end{frame}
 
-% --- result placeholder: line plot ----------------------------------
+% --- result 2: unhoused fraction (real data) -----------------------
 \begin{frame}
-  \frametitle{Expected Result: Unhoused Fraction vs.\ Law Frequency}
+  \frametitle{Unhoused Fraction vs.\ Law Frequency}
   \begin{center}
   \begin{tikzpicture}
     \begin{axis}[
       width=0.88\textwidth, height=4.0cm,
       xlabel={Simulation step}, ylabel={Unhoused (\%)},
-      xmin=0, xmax=200, ymin=0, ymax=25,
+      xmin=0, xmax=100, ymin=0, ymax=15,
       tick style={color=white}, axis line style={color=white},
       xlabel style={color=white}, ylabel style={color=white},
       xticklabel style={color=white}, yticklabel style={color=white},
       grid=major, grid style={color=gray!30},
       legend style={fill=black, draw=white, text=white, font=\small,
-                    at={(0.5,-0.38)}, anchor=north, legend columns=-1},
+                    at={(0.5,-0.52)}, anchor=north, legend columns=-1},
     ]
-      \addplot[nimbygreen, thick, smooth] coordinates {
-        (0,0)(20,2)(50,3)(100,3.5)(150,3.2)(200,3.0)};
+      \addplot[nimbygreen, thick] coordinates {
+        (0,0)(100,0)};
       \addlegendentry{$T=20$ (rare)}
-      \addplot[nimbyyellow, thick, smooth] coordinates {
-        (0,0)(20,3)(50,6)(100,8)(150,8.5)(200,8.2)};
+      \addplot[nimbyyellow, thick] coordinates {
+        (0,0)(60,0)(65,0.12)(70,0.23)(75,0.44)(80,0.62)
+        (85,0.78)(90,0.93)(95,1.06)(100,1.18)};
       \addlegendentry{$T=10$}
-      \addplot[nimbyred, thick, smooth] coordinates {
-        (0,0)(20,5)(50,11)(100,16)(150,18)(200,19)};
+      \addplot[nimbyred, thick] coordinates {
+        (0,0)(25,0)(30,0.23)(35,0.62)(40,1.00)(45,1.75)
+        (50,2.41)(55,3.28)(60,4.31)(65,5.33)(70,6.27)
+        (75,7.10)(80,7.94)(85,8.79)(90,9.57)(95,10.51)(100,11.46)};
       \addlegendentry{$T=5$ (frequent)}
-      \node[color=nimbyyellow, font=\footnotesize] at (axis cs:130,23)
-        {PLACEHOLDER};
     \end{axis}
   \end{tikzpicture}
   \end{center}
+  \small Averaged over $H \in \{3,7,15\}$, $n_{\sqrt{\phantom{x}}} \in \{6,8,10\}$, seeds, roads ($n=27$/curve).
+  $T=20$: zero unhoused throughout. $T=5$: 11.5\% unhoused by step 100.
 \end{frame}
 
-% --- result placeholder: scatter ------------------------------------
+% --- result 3: city size effect (real data) -------------------------
 \begin{frame}
-  \frametitle{Expected Result: Employer Displacement vs.\ Law Density}
+  \frametitle{City Size Effect: Density Amplifies Law Formation}
   \begin{center}
   \begin{tikzpicture}
     \begin{axis}[
-      width=0.88\textwidth, height=4.5cm,
-      xlabel={\% neighborhoods with active law},
-      ylabel={Employer displacement (bldgs)},
-      xmin=0, xmax=100, ymin=0, ymax=60,
+      width=0.88\textwidth, height=3.6cm,
+      xlabel={Step}, ylabel={Mean height (floors)},
+      xmin=0, xmax=100, ymin=1, ymax=5,
       tick style={color=white}, axis line style={color=white},
       xlabel style={color=white}, ylabel style={color=white},
       xticklabel style={color=white}, yticklabel style={color=white},
       grid=major, grid style={color=gray!30},
+      legend style={draw=none},
+      legend image code/.code={},
     ]
-      % PLACEHOLDER scatter
-      \addplot[only marks, mark=*, mark size=2pt,
-               color=nimbyblue, opacity=0.7] coordinates {
-        (10,5)(15,8)(20,10)(25,12)(30,15)(40,22)(50,30)
-        (55,28)(60,35)(70,42)(75,45)(80,50)(85,48)(90,55)
-      };
-      \addplot[nimbyyellow, thick, domain=0:100] {0.58*x + 2};
-      \node[color=nimbyyellow, font=\footnotesize] at (axis cs:50,55)
-        {PLACEHOLDER};
+      \addplot[nimbyred, thick] coordinates {
+        (10,2.20)(20,2.46)(30,2.68)(40,2.91)(50,3.10)
+        (60,3.31)(70,3.49)(80,3.66)(90,3.85)(100,4.05)};
+      \addplot[nimbyyellow, thick] coordinates {
+        (10,1.76)(20,1.96)(30,2.12)(40,2.26)(50,2.40)
+        (60,2.53)(70,2.67)(80,2.81)(90,2.94)(100,3.09)};
+      \addplot[nimbyblue, thick] coordinates {
+        (10,1.52)(20,1.68)(30,1.82)(40,1.94)(50,2.04)
+        (60,2.14)(70,2.23)(80,2.32)(90,2.40)(100,2.48)};
     \end{axis}
   \end{tikzpicture}
   \end{center}
-  \small More laws $\Rightarrow$ employer pushed further from initial location.
+  \vspace{-0.2em}
+  \small Population fixed (500 init + 50/step) — density varies with $n$.
+  \begin{center}
+  \renewcommand{\arraystretch}{1.1}
+  \begin{tabular}{lrrr}
+    \textcolor{nimbygray}{City} &
+    \textcolor{nimbygray}{\% laws @ step 100} &
+    \textcolor{nimbygray}{Unhoused \%} &
+    \textcolor{nimbygray}{Mean height} \\
+    \hline
+    \textcolor{nimbyred}{$n=6$ (crowded)}   & 83.0\% & 10.2\% & 4.05 \\
+    \textcolor{nimbyyellow}{$n=8$}          & 76.2\% &  2.0\% & 3.09 \\
+    \textcolor{nimbyblue}{$n=10$ (sparse)}  & 64.4\% &  0.4\% & 2.48 \\
+  \end{tabular}
+  \end{center}
 \end{frame}
 
 % =====================================================================
@@ -638,7 +697,7 @@
     \item \textcolor{nimbyblue}{\textbf{Empirically}}: NIMBY zoning explains post-2022 price stickiness in tight markets
     \item \textcolor{nimbygreen}{\textbf{The ABM}}: heterogeneous agents sort, build, vote on laws, and drive employer location — rich emergent dynamics
     \item \textcolor{nimbyyellow}{\textbf{AI as collaborator}}: accelerates implementation; human judgment still required for model design and interpretation
-    \item \textcolor{nimbyred}{\textbf{Parameter sweeps}}: higher preference correlation and longer voting horizons both amplify law adoption and unhoused fractions
+    \item \textcolor{nimbyred}{\textbf{Parameter sweeps}}: frequent votes ($T=5$) drive 11.5\% unhoused; longer horizon $H$ and crowded cities ($n=6$) push law adoption to $\sim$100\%
     \item \textcolor{white}{\textbf{Next step}}: deepen the bridge between model mechanics and real urban policy
   \end{enumerate}
 \end{frame}

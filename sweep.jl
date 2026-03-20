@@ -218,8 +218,8 @@ end
         cb = nh_center(city, Int(nid_b))
         road_list[i] = Dict(
             "nid_a" => Int(nid_a), "nid_b" => Int(nid_b),
-            "x_a"   => Float64(ca[1]), "y_a" => Float64(ca[2]),
-            "x_b"   => Float64(cb[1]), "y_b" => Float64(cb[2]),
+            "x_a"   => Float64(ca.x), "y_a" => Float64(ca.y),
+            "x_b"   => Float64(cb.x), "y_b" => Float64(cb.y),
         )
     end
 
