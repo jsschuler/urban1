@@ -393,8 +393,8 @@ def reset_dwellings():
                 mesh.color_attributes.remove(ca)
 
 
-def full_reset_scene():
-    """Remove all NIMBY scene objects and clear all internal state — ready for a new model."""
+def full_reset_scene(*, preserve_landscape=True):
+    """Clear model geometry and state; retain the presentation landscape by default."""
     global _employment  # noqa: PLW0603
     _dwellings.clear()
     _nh_dwelling_ids.clear()
@@ -418,16 +418,19 @@ def full_reset_scene():
         if curve is not None and curve.users == 0:
             bpy.data.curves.remove(curve)
 
-    # Remove Landscape
-    obj = bpy.data.objects.get("NIMBY_Landscape")
-    if obj is not None:
-        mesh = obj.data
-        bpy.data.objects.remove(obj, do_unlink=True)
-        if mesh is not None and mesh.users == 0:
-            bpy.data.meshes.remove(mesh)
+    # The ground is presentation scenery, not model state.
+    if not preserve_landscape:
+        obj = bpy.data.objects.get("NIMBY_Landscape")
+        if obj is not None:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh is not None and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
 
-    # Remove shared materials so they are recreated fresh next run
-    for mat_name in (_SHARED_MAT_NAME, _ROADS_MAT_NAME, "NIMBY_Landscape_Mat"):
+    material_names = [_SHARED_MAT_NAME, _ROADS_MAT_NAME]
+    if not preserve_landscape:
+        material_names.append("NIMBY_Landscape_Mat")
+    for mat_name in material_names:
         mat = bpy.data.materials.get(mat_name)
         if mat is not None:
             bpy.data.materials.remove(mat)
@@ -765,7 +768,7 @@ class NIMBY_OT_Recolor(bpy.types.Operator):
 class NIMBY_OT_Reset(bpy.types.Operator):
     bl_idname      = "wm.nimby_reset"
     bl_label       = "Reset"
-    bl_description = "Completely reset the scene (dwellings, roads, landscape) and request a new model run from Julia"
+    bl_description = "Reset dwellings and roads, preserve the landscape, and request a city reset from Julia"
     def execute(self, _context):
         full_reset_scene()
         if _ws is not None:

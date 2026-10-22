@@ -1,0 +1,22 @@
+Updated defaults and verified the outgoing commands:
+
+- **250 ticks**
+- **Blender updates every 10 ticks**
+- **Distance per hop: 1.01**
+- Every preset now has **displacement-off/on variants**, with matching displacement settings in zoning-vote simulations.
+
+Refresh the slides; no Julia restart is needed.
+
+One distance unit is the horizontal spacing between adjacent **building sites**, not stacked dwellings. Thus, a network link costs **1.01 building-site units**, plus access travel at both ends.
+
+My main presentation feedback:
+
+1. **Make displacement the organizing mechanism.** Show zoning’s effect separately under displacement off and on. Without displacement, budgets do not directly determine housing eligibility or utility—an important baseline for interpreting sorting.
+
+2. **Don’t run every comparison live.** Twelve named variants are too much for 25 minutes. Demonstrate one revealing comparison live and use completed charts for the others.
+
+3. **Fix a transport-consistency issue before interpreting results.** Zoning votes currently evaluate utility using straight-line distance, while housing choices use network-adjusted distance. That difference could affect the conclusions.
+
+4. **Be precise about the market mechanism.** Higher budgets confer displacement priority; the model does not currently determine market-clearing prices or rents. Present it as a model of housing allocation, construction, and local restrictions.
+
+5. **Use genuinely matched arrivals for comparisons.** Identical seeds alone won’t guarantee identical households when treatments consume random numbers differently. Pre-generated arrivals or separate random streams would strengthen the experiments.

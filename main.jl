@@ -12,6 +12,7 @@ include("step.jl")
 include("laws.jl")
 include("employer.jl")
 include("visualizer.jl")
+include("presentation_stats.jl")
 
 # ============================================================
 # Initialisation
@@ -245,7 +246,7 @@ function run_steps!(
             last_sent_step = t
         end
         _print_stats(t, city, elapsed)
-        send_ctrl_stats!(vis, t, city, elapsed)
+        send_ctrl_stats!(vis, t, city, elapsed; road_unit=road_unit)
 
         step_delay > 0.0 && sleep(step_delay)
     end
@@ -334,7 +335,7 @@ function _print_stats(t::Int, city::City, elapsed::Float64)
     @printf "step %4d | agents %6d | housed %6d | dwellings %6d | vacant %5d | mean h %5.2f | max h %3d | empty_bld %5d | %5.2fs\n" t n_agents n_housed n_dw n_vacant h_mean h_max n_empty_buildings elapsed
 end
 
-function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
+function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64; road_unit::Float32=1f0)
     isempty(vis.ctrl_clients) && return
     n_housed = count(a -> a.dwelling_id != 0, city.agents)
     n_vacant = count(d -> d.occupant_id == 0, city.dwellings)
@@ -350,7 +351,7 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
     for agent in city.agents
         emp_by_nh[Int(city.buildings[agent.job_building_id].neighborhood_id)] += 1
     end
-    _broadcast_ctrl!(vis, Dict(
+    _broadcast_ctrl!(vis, merge(presentation_stats(city), housing_access_stats(city; road_unit=road_unit), Dict(
         "type"           => "stats",
         "step"           => t,
         "agents"         => length(city.agents),
@@ -383,7 +384,7 @@ function send_ctrl_stats!(vis::Visualizer, t::Int, city::City, elapsed::Float64)
         "nh_density"     => Float64.(nd_map.median),
         "nh_employment"  => emp_by_nh,
         "roads"          => [[Int(a), Int(b)] for (a, b) in city.roads],
-    ))
+    )))
 end
 
 """
