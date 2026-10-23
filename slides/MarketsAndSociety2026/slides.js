@@ -127,39 +127,54 @@ window.SLIDES = [
     ]
   },
   {
-    "title": "Zoning Is Endogenous",
-    "body": "",
+    "title": "Local Laws Emerge Through Repeated Votes",
+    "body": "Generate a candidate → compare futures → vote locally → retain the rule.",
     "seconds": 40,
-    "notes": "",
+    "notes": "The city starts with no zoning laws. At each scheduled evaluation, the model generates one random candidate per neighborhood, including neighborhoods that already have laws. Residents do not write or optimize the proposal: the bottom-up mechanism is local selection and accumulation. Each candidate is a depth-two decision tree: two tests along each path, four permit/block leaves. Each test randomly selects median, maximum, or minimum building height, or vacancy rate. Thresholds are drawn near that neighborhood’s current value (normal noise with spread max(0.25, 25% of the absolute value), clipped at zero); leaf decisions are random. For an illustrative path, median height above 3 followed by vacancy below 0.1 could lead to a construction block. These numbers illustrate a possible candidate, not a preset regulation.",
     "bullets": [
-      "Each neighborhood can accumulate conditional rules represented as decision trees.",
-      "Tree nodes test median height, maximum height, minimum height, or vacancy.",
-      "Leaves permit or prohibit new construction under the current local state.",
-      "Rules constrain new supply; they do not delete the existing housing stock."
+      "Begin with no zoning laws; generate one random candidate per neighborhood each voting round.",
+      "A candidate is an if–then tree testing local building heights or vacancy.",
+      "Random thresholds near current local conditions lead to permit or block decisions for new construction.",
+      "Incumbents select which candidates become law by comparing their own future utility."
     ]
   },
   {
-    "title": "Incumbents Compare Futures",
-    "body": "",
+    "title": "How an If–Then Law Works",
+    "kind": "law-tree-slide",
+    "body": "Follow two tests of current neighborhood conditions to a construction decision.",
+    "seconds": 40,
+    "diagram": {
+      "src": "law-tree.svg",
+      "alt": "Example decision tree. Median height at most 3 leads to a vacancy test; above 3 leads to a maximum-height test. Each test leads to permit or block. Highlighted path: median 4, maximum 7 → block."
+    },
+    "bullets": [
+      "Example in gold: median height 4 → maximum height 7 → block new construction.",
+      "The model randomly draws tests, thresholds, and permit/block leaves; residents vote on the whole tree."
+    ],
+    "notes": "Illustrative candidate, not a fixed rule or observed adopted law. Every generated tree has two tests along each path and four leaves. Tests draw from median, maximum, and minimum height or vacancy rate; the same feature may appear more than once. Thresholds are drawn near current local values. Leaf outcomes are random, so rules need not always block at higher heights. A passed tree is retained but evaluated against changing neighborhood conditions. PERMIT means this tree does not block: another adopted law can still veto construction. Existing dwellings remain. The gold path shows how to read the tree, not a voting outcome."
+  },
+  {
+    "title": "Residents Vote After Comparing Two Futures",
+    "body": "Existing laws remain in both simulated cities.",
     "seconds": 50,
-    "notes": "Branches start from identical random seeds, but evolving trajectories can consume draws differently; arrivals are not guaranteed to match. Voting utility uses the same effective-distance calculation as housing choice.",
+    "notes": "All neighborhoods’ new proposals are installed together in the with-proposal branch. The other branch retains only existing laws. Each branch simulates H ticks of household arrival and housing adjustment; this is not a separate isolated experiment for each neighborhood’s proposal. Each neighborhood then votes on its own candidate using the utility difference between those two citywide futures. Branches start from identical random seeds, but evolving trajectories can consume draws differently; arrivals are not guaranteed to match. Utility is measured at the end of the horizon using effective network distance, as in housing choice. The original resident list defines the electorate even if residents move or become unhoused in a branch. Equal utility is a no vote; an empty neighborhood cannot pass a law.",
     "bullets": [
-      "Copy the city into with-proposal and without-proposal branches.",
-      "Simulate <math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mi>H</mi></math> ticks of hypothetical adjustment using matched random seeds.",
-      "Compare the utilities of the original neighborhood incumbents across branches.",
-      "Adopt the proposed law only when more than half prefer the with-law outcome."
+      "Copy the city: one future adds every neighborhood’s candidate; the other adds none.",
+      "Simulate H ticks of household arrival and housing adjustment in both futures.",
+      "Each original resident votes yes only if their final utility is higher with the proposals.",
+      "Each neighborhood adopts its candidate only with more than 50% yes; ties fail."
     ]
   },
   {
-    "title": "Whose Welfare Enters the Vote?",
-    "body": "",
+    "title": "Local Votes Build a Lasting Rulebook",
+    "body": "Repeated local choices shape where the next households can build.",
     "seconds": 35,
-    "notes": "Frame this as the institutional distinction to investigate. Do not announce an empirical welfare result.",
+    "notes": "Passed rules are appended permanently: the implementation has no repeal or expiration. At a later construction decision, each active tree is evaluated against the neighborhood’s current conditions. Any one law returning block vetoes new construction; a retained rule may therefore block in some states and permit in others. Existing dwellings are not removed. New candidates are proposed even where earlier laws exist. Future entrants affect forecast outcomes but cannot vote in the current round; once housed, they can enter the electorate in a later round. Baseline voting branches disable incumbent mobility and construction. The institutional result is an evolving local rulebook selected by incumbent utility, not a citywide welfare objective; empirical effects still depend on the experiment.",
     "bullets": [
-      "The electorate is the set of incumbent neighborhood residents.",
-      "Prospective entrants can affect simulated futures but do not join the original electorate.",
-      "Baseline voting branches hold incumbent mobility and construction off.",
-      "This separates the interests represented in local choice from citywide housing accommodation."
+      "Keep every adopted rule permanently; propose another candidate at the next round.",
+      "Evaluate the accumulated rules against current local conditions whenever building is considered.",
+      "Any rule that says block vetoes new construction; existing housing remains.",
+      "Only current residents vote. Prospective entrants have no vote in the rules they will face."
     ]
   },
   {

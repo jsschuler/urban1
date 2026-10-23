@@ -32,6 +32,7 @@ function render(){
   if(s.body)root.append(rich('p',s.body));
   if(s.author){const author=el('div',undefined,'author');for(const line of s.author)author.append(el('div',line));root.append(author);}
   if(s.bullets){const list=el('ul',undefined,'slide-bullets');for(const bullet of s.bullets)list.append(rich('li',bullet));if(s.demo){const detail=el('details',undefined,'demo-explanation');detail.append(el('summary','Experiment guide'),list);root.append(detail);}else root.append(list);}
+  if(s.diagram){const img=el('img',undefined,'law-tree-diagram');img.src=s.diagram.src;img.alt=s.diagram.alt;root.insertBefore(img,root.querySelector('.slide-bullets'));}
   if(s.math)for(const formula of s.math)root.append(rich('div',formula,'math-display'));
   if(s.table){const table=el('table',undefined,'parameter-table');const head=el('thead'),tr=el('tr');for(const h of s.table.headers)tr.append(el('th',h));head.append(tr);table.append(head);const body=el('tbody');for(const row of s.table.rows){const tr=el('tr');for(const cell of row)tr.append(rich('td',cell));body.append(tr);}table.append(body);root.append(table);}
   if(s.source){const a=el('a',s.source.title,'source-link');a.href=s.source.url;a.target='_blank';a.rel='noopener';root.append(a);}

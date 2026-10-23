@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 400" role="img" aria-labelledby="title desc">
+<title id="title">An example zoning decision tree</title>
+<desc id="desc">Test median height first. If at most three, test vacancy: at most ten percent permits construction, otherwise blocks it. If median height exceeds three, test maximum height: at most six permits construction, otherwise blocks it. The highlighted example follows median height four and maximum height seven to block.</desc>
+<style>text{font-family:Arial,sans-serif;fill:#f3f2e9;text-anchor:middle;font-size:23px}.node{fill:#192d3c;stroke:#8299a8;stroke-width:2}.edge{fill:none;stroke:#8299a8;stroke-width:3}.chosen{stroke:#ebbd73;stroke-width:5}.label{font-size:20px;fill:#bacbd4}.permit{fill:#173d38;stroke:#82ccbd;stroke-width:2}.block{fill:#452e32;stroke:#ed9b97;stroke-width:2}</style>
+<path class="edge" d="M550 75 L275 165 M275 215 L140 315 M275 215 L410 315 M825 215 L690 315"/>
+<path class="edge chosen" d="M550 75 L825 165 M825 215 L960 315"/>
+<text class="label" x="365" y="113">Yes: ≤ 3</text><text class="label" x="735" y="113">No: &gt; 3</text>
+<text class="label" x="164" y="271">Yes: ≤ 10%</text><text class="label" x="390" y="271">No: &gt; 10%</text>
+<text class="label" x="710" y="271">Yes: ≤ 6</text><text class="label" x="945" y="271">No: &gt; 6</text>
+<rect class="node chosen" x="380" y="20" width="340" height="55" rx="10"/><text x="550" y="55">Median height ≤ 3?</text>
+<rect class="node" x="110" y="165" width="330" height="55" rx="10"/><text x="275" y="200">Vacancy rate ≤ 10%?</text>
+<rect class="node chosen" x="660" y="165" width="330" height="55" rx="10"/><text x="825" y="200">Maximum height ≤ 6?</text>
+<rect class="permit" x="40" y="315" width="200" height="60" rx="10"/><text x="140" y="352">PERMIT</text>
+<rect class="block" x="310" y="315" width="200" height="60" rx="10"/><text x="410" y="352">BLOCK</text>
+<rect class="permit" x="590" y="315" width="200" height="60" rx="10"/><text x="690" y="352">PERMIT</text>
+<rect class="block chosen" x="860" y="315" width="200" height="60" rx="10"/><text x="960" y="352">BLOCK</text>
+</svg>
