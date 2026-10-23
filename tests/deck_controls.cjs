@@ -6,7 +6,7 @@ class WS{static OPEN=1;constructor(url){this.url=url;this.readyState=1;this.sent
 const ctx={window:{addEventListener(){}},document:{getElementById:id=>nodes[id],createElementNS:(_,t)=>new Element(t),createElement:t=>new Element(t),addEventListener(){}},location:{hash:''},WebSocket:WS,setTimeout:()=>1,clearTimeout(){},console};vm.createContext(ctx);
 for(const file of ['slides.js','telemetry.js','app.js'])vm.runInContext(fs.readFileSync('slides/MarketsAndSociety2026/'+file,'utf8'),ctx);
 assert.equal(ctx.window.SLIDES.length,36);assert.equal(ctx.window.SLIDES.reduce((a,s)=>a+s.seconds,0),1500);
-vm.runInContext('navigate(14)',ctx);assert(nodes.start.disabled);nodes.connect.onclick();const socket=WS.last;socket.onopen();const receive=m=>socket.onmessage({data:JSON.stringify(m)});
+vm.runInContext("navigate(window.SLIDES.findIndex(s=>s.demo==='no_zoning'))",ctx);assert(nodes.start.disabled);nodes.connect.onclick();const socket=WS.last;socket.onopen();const receive=m=>socket.onmessage({data:JSON.stringify(m)});
 receive({type:'running',value:false});assert(nodes.start.disabled);nodes.reset.onclick();assert.equal(socket.sent.at(-1).type,'reset');assert(nodes.start.disabled);
 receive({type:'reset_state'});receive({type:'running',value:false});assert(!nodes.start.disabled);nodes.start.onclick();assert.equal(socket.sent.at(-1).type,'start');assert.equal(socket.sent.at(-1).land_use_eval_every,0);assert(nodes.start.disabled);
 receive({type:'running',value:true});assert(nodes.reset.disabled);const count=socket.sent.length;vm.runInContext('navigate(1)',ctx);assert.equal(socket.sent.length,count);nodes.stop.onclick();assert.equal(socket.sent.at(-1).type,'stop');assert(nodes.reset.disabled);

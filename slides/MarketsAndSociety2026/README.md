@@ -91,3 +91,11 @@ All presets request 250 ticks, Blender updates every 10 ticks, and `road_unit = 
 Use a fresh city for each condition. Common seeds alone do not guarantee identical incoming household draws because treatments can consume random numbers differently; a rigorous paired experiment should pre-generate arrivals or separate random streams. Live presets demonstrate mechanisms and do not implement that matched-arrival experiment harness.
 
 Presentation review: the current law-vote utility comparison uses direct Euclidean distance, while housing choice uses effective network distance. This is a model-consistency issue to resolve before treating transport comparisons as internally consistent welfare evaluations. Budget-based displacement is a priority rule, not a clearing-price mechanism. Both limitations should be made explicit when interpreting the model.
+
+## Overnight presentation results (October 22 update)
+
+Saved comparison slides now precede optional live demonstrations. Use **Run this comparison live** on a result slide to open the controls; all 12 named presets remain available. Earlier slide-number references above describe the previous ordering. Refresh Firefox to load the revised deck.
+
+The presentation sweep is documented in `../../scripts/README.md`. It covers all three comparisons under both displacement regimes, with three seeds and shared baselines. Charts update as balanced runs finish; the displayed seed count and range describe completed runs only. Arrivals remain unmatched, including in hypothetical voting branches despite their identical starting seeds.
+
+Zoning-vote utility now uses network-adjusted distance with the actual `road_unit`, consistent with housing choices. This supersedes the transport-consistency warning above and requires a Julia restart. The model remains a budget-priority allocation and construction model, without market-clearing prices or rents.

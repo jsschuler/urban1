@@ -143,6 +143,7 @@ function run_steps!(
     budget_μ             ::Float32 = 1.0f0,
     budget_σ             ::Float32 = 0.5f0,
     require_authorization::Bool = true,
+    on_step = nothing,
 )
     if require_authorization
         print("Authorize run of $(n_steps) step(s)? [y/N]: ")
@@ -248,6 +249,7 @@ function run_steps!(
         _print_stats(t, city, elapsed)
         send_ctrl_stats!(vis, t, city, elapsed; road_unit=road_unit)
 
+        on_step !== nothing && on_step(t, city)
         step_delay > 0.0 && sleep(step_delay)
     end
 

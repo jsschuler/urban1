@@ -20,3 +20,10 @@ My main presentation feedback:
 4. **Be precise about the market mechanism.** Higher budgets confer displacement priority; the model does not currently determine market-clearing prices or rents. Present it as a model of housing allocation, construction, and local restrictions.
 
 5. **Use genuinely matched arrivals for comparisons.** Identical seeds alone won’t guarantee identical households when treatments consume random numbers differently. Pre-generated arrivals or separate random streams would strengthen the experiments.
+October 22 follow-up:
+- Saved charts now precede optional live demonstrations; every comparison remains available live via its result-slide button and the existing preset menu.
+- Zoning-vote utility now uses effective network distance and the current hop cost, matching housing choice. Regression tests cover roads, direct fallback, and unhoused agents.
+- Matched arrivals are deferred. Notes now distinguish identical starting seeds from identical realized arrivals, including voting branches.
+- scripts/presentation_sweep.py runs the presentation design: 8 unique conditions × 3 seeds, 250 ticks, 40 arrivals/tick, employer enabled, 10×10 neighborhoods with k=8, hop cost 1.01. Shared H=5/zoning-on/roads-off baselines are reused.
+- Per-tick diagnostics, source provenance, final Blender snapshots, logs, and automatic comparison charts are saved. Chart seed counts reflect completed balanced comparisons; ranges are not confidence intervals.
+- The old broad sweep.jl remains a separate exploratory design; use the new presentation sweep for this talk. See scripts/README.md for commands and recovery.

@@ -121,13 +121,13 @@ function _residents_by_neighborhood(city::City)
     return out
 end
 
-function _agent_current_utility(city::City, agent_id::Int32, nd_cache)::Float32
+function _agent_current_utility(city::City, agent_id::Int32, nd_cache; road_unit::Float32=1f0)::Float32
     a = city.agents[agent_id]
     a.dwelling_id == 0 && return 0f0
     d = city.dwellings[a.dwelling_id]
     b = city.buildings[d.building_id]
     jpos = city.buildings[a.job_building_id].pos
-    return agent_utility(a, b, nd_cache, jpos)
+    return agent_utility(a, b, nd_cache, jpos; eff_dist=effective_distance(city, b, city.buildings[a.job_building_id], road_unit))
 end
 
 function _simulate_hypothetical!(
@@ -230,8 +230,8 @@ function evaluate_land_use_laws!(
         end
         yes = 0
         for aid in voters
-            u0 = _agent_current_utility(city_without, aid, nd_without)
-            u1 = _agent_current_utility(city_with,    aid, nd_with)
+            u0 = _agent_current_utility(city_without, aid, nd_without; road_unit)
+            u1 = _agent_current_utility(city_with,    aid, nd_with; road_unit)
             yes += u1 > u0 ? 1 : 0
         end
         share = Float32(yes / length(voters))

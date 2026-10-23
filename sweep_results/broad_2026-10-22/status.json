@@ -1,0 +1,20 @@
+{
+  "state": "stopped_by_user",
+  "updated": "2026-10-22T21:50:18.226407",
+  "deadline": "2026-10-23T09:47:55.449688",
+  "total": 1800,
+  "complete": 0,
+  "failed": [],
+  "timed_out": [],
+  "report_errors": [],
+  "unstarted": 1796,
+  "elapsed_seconds": 60.29442575000576,
+  "active": [],
+  "interrupted": [
+    "n10_a40_T0_H5_d0_r0_s42",
+    "n10_a40_T0_H5_d0_r1_s42",
+    "n10_a40_T0_H5_d1_r0_s42",
+    "n10_a40_T0_H5_d1_r1_s42"
+  ],
+  "stop_reason": "User requested redesign for 16 physical cores; launch job and remaining workers terminated."
+}

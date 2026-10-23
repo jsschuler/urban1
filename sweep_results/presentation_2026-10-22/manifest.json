@@ -1,0 +1,13 @@
+{
+  "created": "2026-10-22T21:36:43.483037",
+  "steps": 250,
+  "side": 10,
+  "inflow": 40,
+  "seeds": [
+    42,
+    137,
+    999
+  ],
+  "matched_arrivals": false,
+  "workers": 4
+}

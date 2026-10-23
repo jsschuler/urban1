@@ -1,0 +1,113 @@
+# ============================================================
+# Spatial primitives
+# ============================================================
+
+struct Position
+    x::Int32
+    y::Int32
+end
+
+distance(a::Position, b::Position) =
+    sqrt(Float32((a.x - b.x)^2 + (a.y - b.y)^2))
+
+# ============================================================
+# Dwelling  (defined before Building so Building can hold Vector{Dwelling})
+# ============================================================
+
+mutable struct Dwelling
+    id::Int32
+    building_id::Int32
+    floor::Int32
+    building_name::String
+    occupant_id::Int32      # 0 = vacant
+end
+
+# ============================================================
+# Urban fabric
+# ============================================================
+
+struct Neighborhood
+    id::Int32
+    pos::Position   # position in neighborhood grid (neighborhood units)
+end
+
+mutable struct LawNode
+    is_leaf::Bool
+    feature::Symbol
+    threshold::Float32
+    prohibit_new_build::Bool
+    left::Union{Nothing,LawNode}
+    right::Union{Nothing,LawNode}
+end
+
+Base.@kwdef mutable struct LandUseLaw
+    active::Bool = false
+    tree::Union{Nothing,LawNode} = nothing
+    vote_share::Float32 = 0.0f0
+end
+
+mutable struct Employer
+    id             ::Int32
+    job_building_id::Int32
+    worker_ids     ::Set{Int32}
+end
+
+struct Building
+    id::Int32
+    pos::Position           # position in city grid (building units)
+    neighborhood_id::Int32
+    name::String
+    dwellings::Vector{Dwelling}
+end
+
+# Height is the number of stacked dwellings; +1 gives the job-probability weight
+# (every parcel has baseline weight 1 even when empty).
+height(b::Building)      = length(b.dwellings)
+job_weight(b::Building)  = length(b.dwellings) + 1
+
+# ============================================================
+# Agent
+# ============================================================
+
+mutable struct Agent
+    id::Int32
+    dwelling_id::Int32      # 0 = unhoused
+    job_building_id::Int32
+
+    budget::Float32
+
+    # Residential preference parameters (used in marginal transforms)
+    pref_neighborhood_density::Float32  # preferred avg dwellings/building in neighbourhood
+    pref_neighborhood_max_height::Float32  # preferred max building height in neighbourhood
+    pref_neighborhood_min_height::Float32  # preferred min building height in neighbourhood
+    pref_building_height::Float32       # preferred home building height (floors)
+    σ_neighborhood::Float32            # sensitivity to % deviation from preferred neighbourhood density
+    σ_building::Float32                # sensitivity to % deviation from preferred building height
+    proximity_scale::Float32           # exponential decay length for job distance (building units)
+
+    # Copula dependence parameter (Frank copula θ; > 0 = positive dependence)
+    copula_θ::Float32
+end
+
+# ============================================================
+# City
+# ============================================================
+
+struct City
+    neighborhoods::Vector{Neighborhood}
+    buildings::Vector{Building}
+    dwellings::Vector{Dwelling}         # flat list for fast global iteration
+    agents::Vector{Agent}
+
+    k::Int32        # neighborhood side length  (k×k buildings per neighborhood)
+    n_x::Int32      # neighborhoods in x direction
+    n_y::Int32      # neighborhoods in y direction
+
+    neighborhood_to_buildings::Vector{Vector{Int32}}  # neighborhood id → [building ids]
+    neighborhood_laws::Vector{Vector{LandUseLaw}}     # neighborhood id → list of passed laws
+
+    roads::Vector{Tuple{Int32,Int32}}   # built roads as (nid_a, nid_b) neighbourhood pairs
+    nh_hop_cache::Matrix{Int32}         # pairwise BFS hop counts; typemax(Int32) = unconnected
+
+    employers::Vector{Employer}
+end

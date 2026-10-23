@@ -111,7 +111,7 @@ window.SLIDES = [
       "Sample existing dwellings; choose the best available option if it improves utility.",
       "With displacement enabled, a higher-budget agent can take an occupied dwelling.",
       "An unhoused agent unable to move can add a dwelling at an allowed building site.",
-      "Construction is prohibited where an active neighborhood rule applies."
+      "Budgets confer displacement priority; the model does not determine market-clearing prices or rents."
     ]
   },
   {
@@ -142,7 +142,7 @@ window.SLIDES = [
     "title": "Incumbents Compare Futures",
     "body": "",
     "seconds": 50,
-    "notes": "Within a proposal, counterfactual branches use matched randomness. This differs from independent live demonstration runs.",
+    "notes": "Branches start from identical random seeds, but evolving trajectories can consume draws differently; arrivals are not guaranteed to match. Voting utility uses the same effective-distance calculation as housing choice.",
     "bullets": [
       "Copy the city into with-proposal and without-proposal branches.",
       "Simulate <math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mi>H</mi></math> ticks of hypothetical adjustment using matched random seeds.",
@@ -174,10 +174,17 @@ window.SLIDES = [
     ]
   },
   {
-    "title": "Live · Zoning Disabled",
+    "title": "Zoning · Across Displacement Regimes",
+    "body": "Exclusion, residential sorting, and job access. Displacement off above; displacement on below.",
+    "seconds": 40,
+    "notes": "Charts appear when balanced conditions finish. Lines show seed means; shading is the seed range, not a confidence interval. Three seeds planned; actual completed seed count is printed on the chart. Arrivals are not matched. Shared baselines are reused. Q1 and Q5 are fixed baseline budget groups. Open the live comparison on request.",
+    "chart": "zoning"
+  },
+  {
+    "title": "On Request · Zoning Disabled",
     "body": "",
     "seconds": 100,
-    "notes": "Reset while idle, then start. Switch to Blender. Return to the slide for metrics; let the 250-tick batch complete while continuing the explanation. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
+    "notes": "Optional audience demonstration. Present the saved comparison first; run any preset if requested. Reset while idle between conditions. Live runs have unmatched arrivals and do not reproduce a saved seed. Reset while idle, then start. Switch to Blender. Return to the slide for metrics; let the 250-tick batch complete while continuing the explanation. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
     "demo": "no_zoning",
     "bullets": [
       "Start from an empty city with zoning proposals disabled.",
@@ -187,10 +194,10 @@ window.SLIDES = [
     ]
   },
   {
-    "title": "Live · Zoning Enabled",
+    "title": "On Request · Zoning Enabled",
     "body": "",
     "seconds": 100,
-    "notes": "Reset while idle, then start. Switch to Blender. Avoid treating a single realization as the estimated treatment effect. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
+    "notes": "Optional audience demonstration. Present the saved comparison first; run any preset if requested. Reset while idle between conditions. Live runs have unmatched arrivals and do not reproduce a saved seed. Reset while idle, then start. Switch to Blender. Avoid treating a single realization as the estimated treatment effect. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
     "demo": "zoning",
     "bullets": [
       "Reset to an empty city and enable local voting with <math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mi>H</mi><mo>=</mo><mn>5</mn></math>.",
@@ -198,13 +205,6 @@ window.SLIDES = [
       "Compare with the previous trajectory; use replicated results for inference.",
       "Select the displacement-off or displacement-on variant explicitly; reset between conditions."
     ]
-  },
-  {
-    "title": "Zoning · Evidence to Add",
-    "body": "Housed share, building heights, and neighborhoods with laws across replicated runs.",
-    "seconds": 40,
-    "notes": "Replace with tonight’s results. Include seeds, population, duration, parameter settings, and uncertainty.",
-    "chart": "zoning"
   },
   {
     "title": "Experiment 2 · The Voting Horizon",
@@ -219,10 +219,17 @@ window.SLIDES = [
     ]
   },
   {
-    "title": "Live · Short versus Long Horizons",
+    "title": "Horizons · Across Displacement Regimes",
+    "body": "Exclusion, residential sorting, and job access. Displacement off above; displacement on below.",
+    "seconds": 40,
+    "notes": "Charts appear when balanced conditions finish. Lines show seed means; shading is the seed range, not a confidence interval. Three seeds planned; actual completed seed count is printed on the chart. Arrivals are not matched. Shared baselines are reused. Q1 and Q5 are fixed baseline budget groups. Open the live comparison on request.",
+    "chart": "horizons"
+  },
+  {
+    "title": "On Request · Short versus Long Horizons",
     "body": "",
     "seconds": 130,
-    "notes": "Run the short condition, stop if needed, reset after idle, then run the long condition. Switch to Blender for each. Branch simulation may dominate runtime. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
+    "notes": "Optional audience demonstration. Present the saved comparison first; run any preset if requested. Reset while idle between conditions. Live runs have unmatched arrivals and do not reproduce a saved seed. Run the short condition, stop if needed, reset after idle, then run the long condition. Switch to Blender for each. Branch simulation may dominate runtime. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
     "demo": "horizons",
     "bullets": [
       "Load the short-horizon preset, reset, and run; repeat with the long-horizon preset.",
@@ -230,13 +237,6 @@ window.SLIDES = [
       "Inspect law adoption and housing accommodation; longer branch simulations take more time.",
       "Select the displacement-off or displacement-on variant explicitly; reset between conditions."
     ]
-  },
-  {
-    "title": "Horizons · Evidence to Add",
-    "body": "Plot law adoption and housing accommodation against <math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mi>H</mi></math>; show dispersion across seeds.",
-    "seconds": 40,
-    "notes": "Keep proposal frequency separate from the forecast horizon.",
-    "chart": "horizons"
   },
   {
     "title": "Interpretation of Horizon Effects",
@@ -265,7 +265,7 @@ window.SLIDES = [
     "title": "The Transport Mechanism",
     "body": "",
     "seconds": 45,
-    "notes": "Road links are added by the model’s network procedure. Describe this as the implemented mechanism, not an estimated infrastructure policy. At the default grid spacing, adjacent neighborhood centers are eight building-site units apart; a direct network hop costs 1.01 before access travel. Voting utility currently uses Euclidean distance and should be audited before interpreting network effects as consistent welfare comparisons.",
+    "notes": "Road links are added by the model’s network procedure. Describe this as the implemented mechanism, not an estimated infrastructure policy. At the default grid spacing, adjacent neighborhood centers are eight building-site units apart; a direct network hop costs 1.01 before access travel. Voting and housing choice now use the same network-adjusted distance.",
     "bullets": [
       "Travel distance is the minimum of direct travel and access + network hops + destination access.",
       "The city caches shortest hop counts between neighborhood centers.",
@@ -274,10 +274,17 @@ window.SLIDES = [
     ]
   },
   {
-    "title": "Live · Transport Off versus On",
+    "title": "Transport · Across Displacement Regimes",
+    "body": "Exclusion, residential sorting, and job access. Displacement off above; displacement on below.",
+    "seconds": 40,
+    "notes": "Charts appear when balanced conditions finish. Lines show seed means; shading is the seed range, not a confidence interval. Three seeds planned; actual completed seed count is printed on the chart. Arrivals are not matched. Shared baselines are reused. Q1 and Q5 are fixed baseline budget groups. Open the live comparison on request.",
+    "chart": "transport"
+  },
+  {
+    "title": "On Request · Transport Off versus On",
     "body": "",
     "seconds": 130,
-    "notes": "Run both conditions from empty cities. Employer settings are fixed across the pair. Switch to Blender; distinguish road construction from employment relocation. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
+    "notes": "Optional audience demonstration. Present the saved comparison first; run any preset if requested. Reset while idle between conditions. Live runs have unmatched arrivals and do not reproduce a saved seed. Run both conditions from empty cities. Employer settings are fixed across the pair. Switch to Blender; distinguish road construction from employment relocation. Each comparison is repeated under both displacement regimes. Do not promise to finish every cell live; use prepared runs to cover the full design.",
     "demo": "transport",
     "bullets": [
       "Reset between transport-off and transport-on conditions.",
@@ -285,13 +292,6 @@ window.SLIDES = [
       "Inspect network links in Blender; ask whether development follows improved access.",
       "Select the displacement-off or displacement-on variant explicitly; reset between conditions."
     ]
-  },
-  {
-    "title": "Transport · Evidence to Add",
-    "body": "Compare housing accommodation and urban form with and without the network.",
-    "seconds": 40,
-    "notes": "Add distance or access outcomes only if collected and defined in the run outputs.",
-    "chart": "transport"
   },
   {
     "title": "Institutions Interact",

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Applications/Julia-1.11.app/Contents/Resources/julia/bin:/opt/anaconda3/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>KeepAlive</key>
+	<false/>
+	<key>Label</key>
+	<string>urban.broad-sweep.20261022</string>
+	<key>LaunchOnlyOnce</key>
+	<true/>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/caffeinate</string>
+		<string>-i</string>
+		<string>/opt/anaconda3/bin/python3</string>
+		<string>-u</string>
+		<string>/Users/l25-n05917-res/ResearchCode/urban1-1/scripts/broad_sweep.py</string>
+		<string>--output</string>
+		<string>/Users/l25-n05917-res/ResearchCode/urban1-1/sweep_results/broad_2026-10-22</string>
+		<string>--hours</string>
+		<string>12</string>
+		<string>--workers</string>
+		<string>4</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/l25-n05917-res/ResearchCode/urban1-1/sweep_results/broad_2026-10-22/sweep.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/l25-n05917-res/ResearchCode/urban1-1/sweep_results/broad_2026-10-22/sweep.log</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/l25-n05917-res/ResearchCode/urban1-1</string>
+</dict>
+</plist>

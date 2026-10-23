@@ -66,3 +66,22 @@ end
     @test fast["budget_quintile_cutoffs"] == plain["budget_quintile_cutoffs"]
     @test_nowarn JSON3.write(fast)
 end
+
+@testset "Zoning votes use housing-choice transport distance" begin
+    city = generate_city(2, 1; k=1)
+    generate_agents!(city, 1; rng=MersenneTwister(42))
+    a = city.agents[1]
+    a.job_building_id = 2
+    build_and_move_in!(a, city.buildings[1], city)
+    cache = compute_nd_cache(city)
+    direct = _agent_current_utility(city, Int32(1), cache; road_unit=0.2f0)
+    @test direct == agent_utility(a,city.buildings[1],cache,city.buildings[2].pos)
+    push!(city.roads, (Int32(1),Int32(2)))
+    rebuild_hop_cache!(city)
+    network = _agent_current_utility(city, Int32(1), cache; road_unit=0.2f0)
+    @test network == agent_utility(a,city.buildings[1],cache,city.buildings[2].pos; eff_dist=0.2f0)
+    @test network > direct
+    @test _agent_current_utility(city, Int32(1), cache; road_unit=2f0) == direct
+    a.dwelling_id = 0
+    @test _agent_current_utility(city, Int32(1), cache; road_unit=0.2f0) == 0f0
+end
