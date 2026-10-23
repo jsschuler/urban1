@@ -1,0 +1,25 @@
+{
+  "state": "stopped",
+  "updated": "2026-10-23T09:54:24.763472",
+  "deadline": "2026-10-23T09:54:24.763477",
+  "workers": 16,
+  "julia_threads_per_worker": 1,
+  "total": 1800,
+  "complete": 1423,
+  "failed": [],
+  "timed_out": [
+    "n14_a40_T5_H20_d0_r1_s2026",
+    "n10_a80_T5_H5_d0_r1_s2026",
+    "n10_a80_T5_H10_d0_r1_s2026",
+    "n10_a80_T5_H20_d0_r0_s2026",
+    "n14_a40_T5_H10_d0_r1_s2026",
+    "n10_a80_T10_H20_d0_r0_s2026",
+    "n14_a40_T5_H20_d0_r0_s2026",
+    "n14_a40_T5_H10_d0_r0_s2026"
+  ],
+  "interrupted": [],
+  "report_errors": [],
+  "active": [],
+  "unstarted": 369,
+  "elapsed_seconds": 43208.065397875005
+}

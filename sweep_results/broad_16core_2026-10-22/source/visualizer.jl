@@ -1,0 +1,337 @@
+using HTTP
+using JSON3
+
+const _WS_CHUNK = 200
+
+# ============================================================
+# Color scheme
+# ============================================================
+
+"""
+Mutable color scheme sent to Blender.
+Change any field and call set_color_scheme! to push the update live.
+
+attribute: "budget" | "height" | "density"
+  budget  — occupant budget (or 0 for vacant)
+  height  — building height, computed by Blender from dwelling positions
+  density — neighbourhood density; Blender approximates from local heights
+"""
+Base.@kwdef mutable struct ColorScheme
+    attribute ::String            = "budget"
+    min_value ::Float64           = 0.0
+    max_value ::Float64           = 10.0
+    color_low ::NTuple{3,Float64} = (0.15, 0.30, 0.85)   # cool blue
+    color_high::NTuple{3,Float64} = (0.85, 0.15, 0.15)   # warm red
+    log_scale ::Bool              = false
+end
+
+_scheme_dict(s::ColorScheme) = Dict(
+    "attribute"  => s.attribute,
+    "min_value"  => s.min_value,
+    "max_value"  => s.max_value,
+    "color_low"  => collect(s.color_low),
+    "color_high" => collect(s.color_high),
+    "log_scale"  => s.log_scale,
+)
+
+# ============================================================
+# Visualizer
+# ============================================================
+
+mutable struct Visualizer
+    ws           ::Ref{Any}               # current WebSocket connection, or nothing
+    sent_ids     ::Set{Int32}             # dwelling IDs already in Blender
+    last_budgets ::Dict{Int32,Float32}    # dwelling_id → last-sent budget (0 = vacant)
+    scheme       ::ColorScheme
+    incoming     ::Channel{Any}           # commands from any client (Blender or browser)
+    ctrl_clients ::Vector{Any}            # browser WebSocket connections
+    stop_flag    ::Ref{Bool}              # set true to interrupt run_steps!
+    sent_roads   ::Set{Tuple{Int32,Int32}} # road pairs already sent to Blender
+end
+
+Visualizer(; scheme = ColorScheme()) =
+    Visualizer(Ref{Any}(nothing), Set{Int32}(), Dict{Int32,Float32}(), scheme,
+               Channel{Any}(32), Any[], Ref(true), Set{Tuple{Int32,Int32}}())
+
+# ============================================================
+# Server
+# ============================================================
+
+"""
+    listen!(vis; host, port)
+
+Start a WebSocket server in the background. Blender connects to ws://host:port.
+On every (re)connection full_sync! is called automatically so Blender always
+receives the complete current state before any incremental diffs.
+city_ref holds a reference to the live City so it can be synced on reconnect.
+"""
+function listen!(vis::Visualizer, city_ref::Ref{Union{Nothing,City}};
+                 host::String = "127.0.0.1", port::Int = 8765)
+    @async HTTP.WebSockets.listen(host, UInt16(port)) do ws
+        vis.ws[] = ws
+        @info "Blender connected"
+        # Push full state so a fresh or reconnecting Blender is never incomplete
+        city = city_ref[]
+        isnothing(city) || full_sync!(vis, city)
+        # Read incoming Blender messages (e.g. reset_request) in a separate
+        # task so that concurrent sends from send_step_diff! are never blocked
+        # by the receive path sharing the same WebSocket.
+        @async try
+            for msg in ws
+                try
+                    data = JSON3.read(msg, Dict{String,Any})
+                    put!(vis.incoming, data)
+                catch e
+                    @warn "WebSocket message parse error" exception=(e, catch_backtrace())
+                end
+            end
+        catch e
+            @warn "WebSocket reader error" exception=(e, catch_backtrace())
+        end
+
+        try
+            # Passive loop: keeps the handler alive so the connection stays open.
+            while !HTTP.WebSockets.isclosed(ws)
+                sleep(0.1)
+            end
+        catch e
+            @warn "WebSocket handler loop error" exception=(e, catch_backtrace())
+        finally
+            vis.ws[] = nothing
+            @info "Blender disconnected"
+        end
+    end
+    @info "Visualizer listening on ws://$(host):$(port)"
+end
+
+function _send!(vis::Visualizer, payload::AbstractDict)
+    ws = vis.ws[]
+    isnothing(ws) && return
+    try
+        HTTP.WebSockets.send(ws, JSON3.write(payload))
+    catch e
+        @warn "Visualizer send error: $e"
+    end
+end
+
+function _send_chunked!(vis::Visualizer, msg_type::String, key::String, items)
+    n = length(items)
+    n == 0 && return
+    i = 1
+    while i <= n
+        j = min(i + _WS_CHUNK - 1, n)
+        _send!(vis, Dict("type" => msg_type, key => items[i:j]))
+        i = j + 1
+    end
+end
+
+"""
+    reset_vis!(vis)
+
+Clear visualizer-side diff tracking and ask Blender to clear current dwellings.
+Use this before a full_sync! when resetting the simulation state.
+"""
+function reset_vis!(vis::Visualizer)
+    empty!(vis.sent_ids)
+    empty!(vis.last_budgets)
+    empty!(vis.sent_roads)
+    _send!(vis, Dict("type" => "reset"))
+end
+
+function _road_entry(city::City, nid_a::Int32, nid_b::Int32)
+    ca = nh_center(city, Int(nid_a))
+    cb = nh_center(city, Int(nid_b))
+    Dict("nid_a" => Int(nid_a), "nid_b" => Int(nid_b),
+         "x_a"   => Int(ca.x),  "y_a"   => Int(ca.y),
+         "x_b"   => Int(cb.x),  "y_b"   => Int(cb.y))
+end
+
+"""Send any roads in city.roads not yet in vis.sent_roads to Blender."""
+function send_new_roads!(vis::Visualizer, city::City)
+    isnothing(vis.ws[]) && return
+    new_roads = Dict{String,Any}[]
+    for (a, b) in city.roads
+        key = (min(a, b), max(a, b))
+        key ∈ vis.sent_roads && continue
+        push!(new_roads, _road_entry(city, a, b))
+        push!(vis.sent_roads, key)
+    end
+    isempty(new_roads) && return
+    _send!(vis, Dict("type" => "new_roads", "roads" => new_roads))
+end
+
+# ============================================================
+# Sync helpers
+# ============================================================
+
+_dwelling_budget(d::Dwelling, city::City)::Float32 =
+    d.occupant_id == 0 ? 0.0f0 : city.agents[d.occupant_id].budget
+
+function _dwelling_entry(d::Dwelling, city::City)
+    b = city.buildings[d.building_id]
+    Dict("id" => d.id, "x" => b.pos.x, "y" => b.pos.y,
+         "floor" => d.floor, "budget" => _dwelling_budget(d, city))
+end
+
+# ============================================================
+# Public API
+# ============================================================
+
+"""
+    full_sync!(vis, city)
+
+Push the complete current state to Blender (e.g. after a reconnect).
+Resets all tracking so the diff machinery starts fresh.
+"""
+function full_sync!(vis::Visualizer, city::City)
+    empty!(vis.sent_ids)
+    empty!(vis.last_budgets)
+
+    _send!(vis, Dict(
+        "type" => "city_config",
+        "k"    => Int(city.k),
+        "n_x"  => Int(city.n_x),
+        "n_y"  => Int(city.n_y),
+    ))
+    _send!(vis, Dict("type" => "color_scheme", "scheme" => _scheme_dict(vis.scheme)))
+
+    if !isempty(city.dwellings)
+        payload = [_dwelling_entry(d, city) for d in city.dwellings]
+        _send!(vis, Dict("type" => "new_dwellings", "dwellings" => payload))
+        for d in city.dwellings
+            push!(vis.sent_ids, d.id)
+            vis.last_budgets[d.id] = _dwelling_budget(d, city)
+        end
+    end
+
+    send_new_roads!(vis, city)
+end
+
+"""
+    send_step_diff!(vis, city)
+
+Send only what changed since the last call:
+  • new dwellings  — geometry to add in Blender
+  • budget changes — occupant moved in, moved out, or was displaced
+
+Call once after each model step.
+"""
+function send_step_diff!(vis::Visualizer, city::City)
+    isnothing(vis.ws[]) && return
+
+    new_payload    = Vector{Dict{String,Any}}()
+    update_payload = Vector{Dict{String,Any}}()
+
+    for d in city.dwellings
+        budget = _dwelling_budget(d, city)
+
+        if d.id ∉ vis.sent_ids
+            push!(new_payload, _dwelling_entry(d, city))
+            push!(vis.sent_ids, d.id)
+            vis.last_budgets[d.id] = budget
+
+        elseif get(vis.last_budgets, d.id, -1.0f0) != budget
+            push!(update_payload, Dict("id" => d.id, "budget" => budget))
+            vis.last_budgets[d.id] = budget
+        end
+    end
+
+    _send_chunked!(vis, "new_dwellings", "dwellings", new_payload)
+    _send_chunked!(vis, "budget_updates", "updates", update_payload)
+    send_new_roads!(vis, city)
+    send_employment_updates!(vis, city)
+end
+
+"""Send per-building worker counts to Blender for employment coloring."""
+function send_employment_updates!(vis::Visualizer, city::City)
+    isnothing(vis.ws[]) && return
+    counts = Dict{Int32, Int}()
+    if isempty(city.employers)
+        # Employer feature off: count all agents by their assigned job_building_id
+        for agent in city.agents
+            bid = agent.job_building_id
+            counts[bid] = get(counts, bid, 0) + 1
+        end
+    else
+        for emp in city.employers
+            n = length(emp.worker_ids)
+            n == 0 && continue
+            counts[emp.job_building_id] = get(counts, emp.job_building_id, 0) + n
+        end
+    end
+    isempty(counts) && return
+    payload = [Dict{String,Any}(
+        "x"       => Int(city.buildings[bid].pos.x),
+        "y"       => Int(city.buildings[bid].pos.y),
+        "workers" => n,
+    ) for (bid, n) in counts]
+    _send!(vis, Dict("type" => "employment_updates", "buildings" => payload))
+end
+
+"""
+    set_color_scheme!(vis; attribute, min_value, max_value,
+                           color_low, color_high, log_scale)
+
+Update any subset of color scheme parameters and immediately push to Blender.
+All keyword arguments are optional; unspecified fields keep their current value.
+
+Example — switch to log-scale height colouring:
+    set_color_scheme!(vis; attribute="height", log_scale=true, max_value=20.0)
+"""
+function set_color_scheme!(vis::Visualizer; kwargs...)
+    for (k, v) in kwargs
+        setfield!(vis.scheme, k, v)
+    end
+    _send!(vis, Dict("type" => "color_scheme", "scheme" => _scheme_dict(vis.scheme)))
+end
+
+# ============================================================
+# Browser control server
+# ============================================================
+
+"""Broadcast a JSON payload to all connected browser clients."""
+function _broadcast_ctrl!(vis::Visualizer, payload::AbstractDict)
+    dead = Int[]
+    for (i, ws) in enumerate(vis.ctrl_clients)
+        try
+            HTTP.WebSockets.send(ws, JSON3.write(payload))
+        catch
+            push!(dead, i)
+        end
+    end
+    isempty(dead) || deleteat!(vis.ctrl_clients, dead)
+end
+
+"""
+    listen_control!(vis; port=8766)
+
+Start a WebSocket server for browser clients on a separate port.
+All incoming messages are forwarded to `vis.incoming` for processing
+by the control loop started in `main.jl`.
+On connect, sends the current running state so the UI is immediately in sync.
+"""
+function listen_control!(vis::Visualizer; port::Int = 8766)
+    @async HTTP.WebSockets.listen("127.0.0.1", UInt16(port)) do ws
+        push!(vis.ctrl_clients, ws)
+        @info "Browser connected"
+        HTTP.WebSockets.send(ws, JSON3.write(
+            Dict("type" => "running", "value" => !vis.stop_flag[])
+        ))
+        try
+            for msg in ws
+                try
+                    data = JSON3.read(msg, Dict{String,Any})
+                    put!(vis.incoming, data)
+                catch e
+                    @warn "Control message parse error" exception=(e, catch_backtrace())
+                end
+            end
+        catch e
+            @warn "Control handler error" exception=(e, catch_backtrace())
+        finally
+            filter!(c -> c !== ws, vis.ctrl_clients)
+            @info "Browser disconnected"
+        end
+    end
+    @info "Control server on ws://127.0.0.1:$(port)"
+end
