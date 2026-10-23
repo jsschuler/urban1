@@ -27,7 +27,7 @@ function choices(demo){return demo==='horizons'?['short','long']:demo==='transpo
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
 function rich(tag,markup,cls){const n=el(tag,undefined,cls);n.innerHTML=markup;return n;}
 function render(){
-  const s=current(),root=$('slide');root.replaceChildren();root.className=s.appendix?'appendix':s.chart?'results':s.kind||'';
+  const s=current(),root=$('slide');root.replaceChildren();root.className=s.chart?'results':s.appendix?'appendix':s.kind||'';
   root.append(el('div',s.demo?'Live experiment · switch to Blender':s.chart?'Saved comparisons · overnight experiments':'Urbanization from the bottom up','eyebrow'),el('h1',s.title));
   if(s.body)root.append(rich('p',s.body));
   if(s.author){const author=el('div',undefined,'author');for(const line of s.author)author.append(el('div',line));root.append(author);}
@@ -36,7 +36,7 @@ function render(){
   if(s.table){const table=el('table',undefined,'parameter-table');const head=el('thead'),tr=el('tr');for(const h of s.table.headers)tr.append(el('th',h));head.append(tr);table.append(head);const body=el('tbody');for(const row of s.table.rows){const tr=el('tr');for(const cell of row)tr.append(rich('td',cell));body.append(tr);}table.append(body);root.append(table);}
   if(s.source){const a=el('a',s.source.title,'source-link');a.href=s.source.url;a.target='_blank';a.rel='noopener';root.append(a);}
   if(s.equation)root.append(el('div',s.equation,'equation'));
-  if(s.chart){const live=el('button','Run this comparison live');live.onclick=()=>{const demo=s.chart==='zoning'?'no_zoning':s.chart;const target=window.SLIDES.findIndex(x=>x.demo===demo);navigate(target-position);};root.append(live);const img=el('img');img.className='chart';img.alt=s.body;img.src=`charts/${s.chart}.png?v=${Date.now()}`;img.onerror=()=>img.replaceWith(el('div','Awaiting results · '+s.chart+'.png','placeholder'));root.append(img);}
+  if(s.chart){if(['zoning','horizons','transport'].includes(s.chart)){const live=el('button','Run this comparison live');live.onclick=()=>{const demo=s.chart==='zoning'?'no_zoning':s.chart;const target=window.SLIDES.findIndex(x=>x.demo===demo);navigate(target-position);};root.append(live);}const img=el('img');img.className='chart';img.alt=s.body;img.src=`charts/${s.chart}.png?v=${Date.now()}`;img.onerror=()=>img.replaceWith(el('div','Awaiting results · '+s.chart+'.png','placeholder'));root.append(img);}
   if(s.demo){
     const opts=Object.keys(presets);
     const controls=el('div',undefined,'controls'),select=el('select');select.id='scenario';select.setAttribute('aria-label','Experiment condition');

@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import PercentFormatter
 
 PAIRS = {'zoning': ('no_zoning', 'zoning'), 'horizons': ('zoning', 'long'), 'transport': ('zoning', 'roads_on')}
 LABELS = {'no_zoning': 'Zoning off', 'zoning': 'Zoning on, H=5, roads off', 'long': 'H=20', 'roads_on': 'Roads on'}
@@ -33,7 +34,7 @@ def render(source, destination):
         if records[-1].get('type') != 'complete': continue
         c = records[0]['config']
         rows = [r for r in records if r['type'] == 'step']
-        if len(rows) != c['n_steps']: raise ValueError(f'Incomplete run: {path}')
+        if [r['step'] for r in rows] != list(range(1,c['n_steps']+1)): raise ValueError(f'Incomplete run: {path}')
         runs[c['condition'], c['displacement'], c['seed']] = (c, rows)
     for family, conditions in PAIRS.items():
         seeds = sorted(set.intersection(*(set(k[2] for k in runs if k[:2] == (c,d)) for c in conditions for d in (False,True))))
@@ -46,6 +47,7 @@ def render(source, destination):
                     cfg = runs[c,d,seed][0]
                     for key in ('n_steps','agents_inflow','n_neighborhoods_sqrt','k','road_unit'):
                         if cfg[key] != example[key]: raise ValueError(f'Mixed settings: {key}')
+        plt.rcParams.update({'font.size': 12, 'axes.spines.top': False, 'axes.spines.right': False})
         fig, axes = plt.subplots(2,3,figsize=(16,8),sharex=True, sharey="col", constrained_layout=True)
         for row,d in enumerate((False,True)):
             for ci,c in enumerate(conditions):
@@ -60,17 +62,23 @@ def render(source, destination):
                 draw(axes[row,1],values,color,'-',LABELS[c])
             for col,title in enumerate(('Housing exclusion · Q1 & Q5','Residential sorting · housed','Job access · Q1 & Q5 housed')):
                 ax=axes[row,col]; ax.set_title(title); ax.grid(alpha=.18)
-                ax.set_xlabel('Simulation tick'); ax.legend(fontsize=7)
-                if col < 2: ax.set_ylim(0,1)
+                ax.set_xlabel('Simulation tick'); ax.legend(fontsize=9)
+                if col == 0: ax.yaxis.set_major_formatter(PercentFormatter(1))
             axes[row,0].set_ylabel(f'Displacement {"on" if d else "off"}\nUnhoused share')
             axes[row,1].set_ylabel('Population-weighted Gini')
             axes[row,2].set_ylabel('Mean effective distance')
+        for col in range(3):
+            axes[0,col].set_ylim(0, max(.01, max(ax.dataLim.ymax for ax in axes[:,col])*1.05))
         fig.suptitle(f'{family.title()} comparison · {len(seeds)} seeds · mean and min–max range\n'
                      f'{n} ticks; {example["agents_inflow"]} arrivals/tick; {example["n_neighborhoods_sqrt"]}×{example["n_neighborhoods_sqrt"]} neighborhoods, k=8; employer on; hop cost 1.01\n'
                      'Q1 lowest / Q5 highest baseline budgets · unmatched arrivals · shared baseline reused',fontsize=12)
         tmp=destination/f'{family}.tmp.png'
-        fig.savefig(tmp,dpi=150); plt.close(fig)
+        fig.savefig(tmp,dpi=150)
         tmp.replace(destination/f'{family}.png')
+        # Vector exports retain legibility when reused in other slide software.
+        fig.savefig(destination/f'{family}.pdf')
+        fig.savefig(destination/f'{family}.svg')
+        plt.close(fig)
         (destination/f'{family}.json').write_text(json.dumps({'source':str(source.resolve()),'seeds':seeds,'conditions':conditions,'config':example,'band':'min–max across seeds','matched_arrivals':False},indent=2))
         print(f'Updated {family}: {len(seeds)} balanced seeds',flush=True)
 

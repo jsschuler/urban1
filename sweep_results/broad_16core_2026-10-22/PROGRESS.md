@@ -1,26 +1,37 @@
-# 16-core sweep progress
+# Sweep progress
 
-State: **Prepared — not running**
+Updated: 2026-10-23T09:54:24.763472
 
-- Machine verified: 16 physical cores, 128 GiB RAM.
-- Execution: 16 independent Julia workers, one compute thread each; nested numeric-library threading disabled.
-- Budget: 12 hours from launch; stop new jobs 30 minutes before the deadline.
-- Design: 360 parameter combinations × 5 seeds = 1,800 queued runs, 1,000 ticks each.
-- Priority: 200 core comparisons first; then vary city size and inflow.
-- Previous four-worker sweep stopped; partial trajectories preserved separately.
+- State: **stopped**
+- Simulation deadline: 2026-10-23T09:54:24.763477
+- Compute: 16 Julia workers × 1 thread; BLAS/OpenMP limited to 1 thread
+- Completed: **1423 / 1800**
+- Active: 0; unstarted: 369
+- Failed: 0; timed out: 8; interrupted: 0
+- Elapsed: 12.00 hours
 
-Run from the repository root:
+## Active runs
 
-```sh
-caffeinate -i python3 -u scripts/broad_sweep.py --output sweep_results/broad_16core_2026-10-22 --workers 16 --hours 12
-```
+| Run | Last saved tick |
+|---|---:|
 
-This file becomes the live progress dashboard when the command starts. `EVENTS.md` will hold timestamped run events. Ctrl+C stops the coordinator and its workers cleanly.
+## Outputs
 
-## Preparation checks
+- [Event history](EVENTS.md)
+- [Endpoint table](endpoints.csv)
+- [Condition summaries](condition_summary.csv)
+- [Conditional comparisons](contrasts.csv)
+- [Charts](charts/)
 
-- Eight small-city factorial runs completed successfully with the 16-worker setting.
-- Reports and Markdown dashboard generated without errors.
-- SIGTERM test stopped both active test workers and recorded interrupted status.
-- Python syntax and repository whitespace checks passed.
-- Full replacement sweep has not been started.
+Arrivals are unmatched. Counts reflect completed runs only.
+
+## Incomplete runs
+
+- timed_out: `n14_a40_T5_H20_d0_r1_s2026`
+- timed_out: `n10_a80_T5_H5_d0_r1_s2026`
+- timed_out: `n10_a80_T5_H10_d0_r1_s2026`
+- timed_out: `n10_a80_T5_H20_d0_r0_s2026`
+- timed_out: `n14_a40_T5_H10_d0_r1_s2026`
+- timed_out: `n10_a80_T10_H20_d0_r0_s2026`
+- timed_out: `n14_a40_T5_H20_d0_r0_s2026`
+- timed_out: `n14_a40_T5_H10_d0_r0_s2026`

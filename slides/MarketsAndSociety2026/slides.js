@@ -175,9 +175,9 @@ window.SLIDES = [
   },
   {
     "title": "Zoning · Across Displacement Regimes",
-    "body": "Exclusion, residential sorting, and job access. Displacement off above; displacement on below.",
+    "body": "Short-horizon zoning: little exclusion change; more sorting with displacement.",
     "seconds": 40,
-    "notes": "Charts appear when balanced conditions finish. Lines show seed means; shading is the seed range, not a confidence interval. Three seeds planned; actual completed seed count is printed on the chart. Arrivals are not matched. Shared baselines are reused. Q1 and Q5 are fixed baseline budget groups. Open the live comparison on request.",
+    "notes": "At tick 250 with displacement, Q1 exclusion is 14.74% with zoning versus 14.10% without; sorting is 0.139 versus 0.130. Without displacement, both conditions house everyone. This does not support a general claim that zoning raises exclusion. Three completed seeds; 250 ticks. Lines are seed means and shading is min–max, not a confidence interval. Displacement off above; on below. Q1/Q5 use fixed baseline budget thresholds. Arrivals are unmatched; baselines are reused. Sorting and commute describe housed residents only. Exact values and contrasts are in ANALYSIS.md.",
     "chart": "zoning"
   },
   {
@@ -220,9 +220,9 @@ window.SLIDES = [
   },
   {
     "title": "Horizons · Across Displacement Regimes",
-    "body": "Exclusion, residential sorting, and job access. Displacement off above; displacement on below.",
+    "body": "Long horizons: exclusion varies across seeds; sorting rises with displacement.",
     "seconds": 40,
-    "notes": "Charts appear when balanced conditions finish. Lines show seed means; shading is the seed range, not a confidence interval. Three seeds planned; actual completed seed count is printed on the chart. Arrivals are not matched. Shared baselines are reused. Q1 and Q5 are fixed baseline budget groups. Open the live comparison on request.",
+    "notes": "Without displacement, H=20 yields Q1 exclusion of 0%, 0%, and 30.37% at tick 250, versus zero under H=5. The mean is 10.12%, driven by one run. With displacement, sorting rises from 0.139 to 0.158; Q1 exclusion falls slightly from 14.74% to 13.91%. Three completed seeds; 250 ticks. Lines are seed means and shading is min–max, not a confidence interval. Displacement off above; on below. Q1/Q5 use fixed baseline budget thresholds. Arrivals are unmatched; baselines are reused. Sorting and commute describe housed residents only. Exact values and contrasts are in ANALYSIS.md.",
     "chart": "horizons"
   },
   {
@@ -239,15 +239,11 @@ window.SLIDES = [
     ]
   },
   {
-    "title": "Interpretation of Horizon Effects",
-    "body": "",
+    "title": "Longer Runs · Effects Depend on the Regime",
+    "body": "At 1,000 ticks, H=20 without displacement spans 0–84% Q1 exclusion across five seeds.",
     "seconds": 40,
-    "notes": "",
-    "bullets": [
-      "Separate immediate voting responses from changes in later neighborhood composition.",
-      "Compare matched experimental settings and report dispersion across random seeds.",
-      "Do not infer a monotonic horizon effect from a single live trajectory."
-    ]
+    "notes": "Central setting: 10×10 neighborhoods, 40 arrivals/tick; all 200 runs across its 40 cells completed. Figure selects four conditions, five seeds each, under both displacement regimes. Whiskers are full seed ranges, not confidence intervals. Without displacement, H=20 mean Q1 exclusion is 33.34%, range 0–84.11%; H=5 has zero exclusion. With displacement, sorting rises from 0.114 at H=5 to 0.161 at H=20. Roads reduce Q1 commute to about 8 units in both regimes. These are separate 1,000-tick runs, not extensions of the three-seed presentation trajectories. The full broad sweep completed 1,423/1,800 runs; partial runs are excluded.",
+    "chart": "long_run"
   },
   {
     "title": "Experiment 3 · Transport Access",
@@ -275,9 +271,9 @@ window.SLIDES = [
   },
   {
     "title": "Transport · Across Displacement Regimes",
-    "body": "Exclusion, residential sorting, and job access. Displacement off above; displacement on below.",
+    "body": "Transport shortens commutes in both regimes; low-budget exclusion persists.",
     "seconds": 40,
-    "notes": "Charts appear when balanced conditions finish. Lines show seed means; shading is the seed range, not a confidence interval. Three seeds planned; actual completed seed count is printed on the chart. Arrivals are not matched. Shared baselines are reused. Q1 and Q5 are fixed baseline budget groups. Open the live comparison on request.",
+    "notes": "At tick 250, roads reduce Q1 mean commute from 30.30 to 19.96 without displacement and from 12.47 to 6.02 with displacement. With displacement, Q1 exclusion remains about 15%. Q5 commute falls from 20.25 to 8.42. Transport does not eliminate budget-based exclusion. Three completed seeds; 250 ticks. Lines are seed means and shading is min–max, not a confidence interval. Displacement off above; on below. Q1/Q5 use fixed baseline budget thresholds. Arrivals are unmatched; baselines are reused. Sorting and commute describe housed residents only. Exact values and contrasts are in ANALYSIS.md.",
     "chart": "transport"
   },
   {
@@ -297,12 +293,11 @@ window.SLIDES = [
     "title": "Institutions Interact",
     "body": "",
     "seconds": 40,
-    "notes": "Use the completed experiments to decide which interactions are actually supported.",
+    "notes": "These statements describe the central experimental setting, not calibrated real-city effects. The broader incomplete grid and conditional contrasts are documented in ANALYSIS.md.",
     "bullets": [
-      "Zoning changes where new housing is feasible.",
-      "Transport changes the commuting value of locations.",
-      "Voting horizons change the futures residents evaluate.",
-      "Their interaction is an empirical question within the model, to be checked across runs."
+      "With displacement, zoning and longer voting horizons increase residential sorting in the central comparisons.",
+      "Without displacement, long horizons can produce severe exclusion, with large variation across seeds.",
+      "Transport lowers effective commuting distance in both regimes, but low-budget exclusion persists with displacement."
     ]
   },
   {
@@ -357,9 +352,10 @@ window.SLIDES = [
     "seconds": 40,
     "notes": "Close on the housing-market research question. Invite questions after the 25-minute presentation.",
     "bullets": [
-      "Housing choices alter the neighborhoods on which future choices depend.",
-      "Local voting connects incumbent preferences to the supply available to later arrivals.",
-      "Transport and anticipation can change that feedback: the experiments examine how."
+      "Housing exclusion depends on how allocation and local voting interact; zoning does not have one uniform effect.",
+      "Long-horizon outcomes vary sharply across seeds without displacement.",
+      "Transport improves access among housed residents; it does not eliminate exclusion.",
+      "Read exclusion, sorting, and access together."
     ]
   },
   {

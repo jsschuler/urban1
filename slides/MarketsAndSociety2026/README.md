@@ -1,6 +1,6 @@
 # Markets and Society 2026
 
-31-slide main talk with five optional parameter-reference slides, with a 25-minute speaker-note budget excluding questions. Housing markets are the central story; the spring 2026 AI workflow occupies two brief slides. Results remain explicitly pending.
+31-slide main talk with five optional parameter-reference slides, with a 25-minute speaker-note budget excluding questions. Housing markets are the central story; the spring 2026 AI workflow occupies two brief slides. Completed results and interpretation are documented in [ANALYSIS.md](ANALYSIS.md).
 
 ## Present
 
@@ -26,17 +26,25 @@ Presets in `app.js` use 250 ticks, 40 arrivals per step, 100 neighborhoods with 
 
 Every condition starts from an empty city after an explicit reset. The existing reset command does **not** reseed the random generator. These are illustrative independent trajectories, not matched-seed experimental estimates. The deck does not alter the model backend. Stop and reset must remain separate because the existing server uses a short fixed wait when processing resets.
 
-## Fill results tomorrow
+## Completed sweep figures
 
-Add exported PNG charts at these paths; the slides automatically display them on reload:
+The deck now includes the three 250-tick comparisons and a 1,000-tick endpoint comparison in the horizon interpretation slot. Captions, speaker notes, and conclusions reflect the completed data. The 31-slide main talk and 25-minute timing budget are unchanged.
 
-- `charts/zoning.png` — slide 17
-- `charts/horizons.png` — slide 20
-- `charts/transport.png` — slide 25
+- `charts/zoning.png`, `charts/horizons.png`, `charts/transport.png`: three seeds per condition, mean and full seed range.
+- `charts/long_run.png`: five seeds per condition in the complete central setting, mean and full seed range.
+- Matching PDF and SVG exports are available for all four figures.
+- [Analysis](ANALYSIS.md): endpoints, contrasts, coverage, interpretation, and validation limits.
+- `charts/endpoint_summary.csv`, `charts/presentation_endpoints.csv`, and `charts/slide_contrasts.csv`: numerical results.
 
-Missing images display labeled placeholders. No synthetic results are included. Put definitions, run settings, seed count, simulation duration, and uncertainty in the chart or slide text. Edit `slides.js` for captions, speaker notes, and substantive conclusions. Update slide 30 after reviewing the evidence. Revise the conclusion if the findings require it.
+All 24 presentation runs completed. The broad sweep completed 1,423 of 1,800 planned runs; eight timed out and 369 were unstarted. Its central 200-run design is complete. Partial trajectories are excluded. Bands/whiskers are seed ranges, not confidence intervals; arrivals are unmatched.
 
-For a fallback, use the completed result slides or prepare recordings/snapshots from tonight’s runs; none are bundled yet. The presentation still loads without a model connection, with live controls disabled.
+Reproduce from the repository root with the installed scientific Python environment:
+
+```sh
+/opt/anaconda3/bin/python3 scripts/analyze_completed_sweeps.py
+```
+
+This also refreshes broad heatmaps and tables in `sweep_results/broad_16core_2026-10-22/`. Saved figures work without a live model connection.
 
 ## Validation
 

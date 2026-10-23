@@ -1,0 +1,61 @@
+dataset,displacement,contrast,metric,n,difference_in_means,common_seeds
+presentation_250,False,Zoning on minus off,exclusion_q1,3,0.0,42 137 999
+presentation_250,False,Zoning on minus off,exclusion_q5,3,0.0,42 137 999
+presentation_250,False,Zoning on minus off,sorting,3,-0.00211281877350648,42 137 999
+presentation_250,False,Zoning on minus off,commute_q1,3,0.27632662431463,42 137 999
+presentation_250,False,Zoning on minus off,commute_q5,3,0.4407911731689775,42 137 999
+presentation_250,False,H20 minus H5,exclusion_q1,3,0.1012199142762941,42 137 999
+presentation_250,False,H20 minus H5,exclusion_q5,3,0.10028896821349652,42 137 999
+presentation_250,False,H20 minus H5,sorting,3,-0.00021948589303015867,42 137 999
+presentation_250,False,H20 minus H5,commute_q1,3,0.7833890541290979,42 137 999
+presentation_250,False,H20 minus H5,commute_q5,3,0.7594460582130568,42 137 999
+presentation_250,False,Roads on minus off,exclusion_q1,3,0.0,42 137 999
+presentation_250,False,Roads on minus off,exclusion_q5,3,0.0,42 137 999
+presentation_250,False,Roads on minus off,sorting,3,-0.0006793863754607915,42 137 999
+presentation_250,False,Roads on minus off,commute_q1,3,-10.341976096050324,42 137 999
+presentation_250,False,Roads on minus off,commute_q5,3,-10.128546773796804,42 137 999
+presentation_250,True,Zoning on minus off,exclusion_q1,3,0.006402688361354954,42 137 999
+presentation_250,True,Zoning on minus off,exclusion_q5,3,-0.0002336878399930636,42 137 999
+presentation_250,True,Zoning on minus off,sorting,3,0.009446597365305657,42 137 999
+presentation_250,True,Zoning on minus off,commute_q1,3,0.32099813622200735,42 137 999
+presentation_250,True,Zoning on minus off,commute_q5,3,-0.24632210250398145,42 137 999
+presentation_250,True,H20 minus H5,exclusion_q1,3,-0.008327878221807231,42 137 999
+presentation_250,True,H20 minus H5,exclusion_q5,3,0.0019555251175790377,42 137 999
+presentation_250,True,H20 minus H5,sorting,3,0.018624298587166466,42 137 999
+presentation_250,True,H20 minus H5,commute_q1,3,0.5365143703291656,42 137 999
+presentation_250,True,H20 minus H5,commute_q5,3,-0.3077467458092471,42 137 999
+presentation_250,True,Roads on minus off,exclusion_q1,3,0.0020080831792465372,42 137 999
+presentation_250,True,Roads on minus off,exclusion_q5,3,0.0001787013941888313,42 137 999
+presentation_250,True,Roads on minus off,sorting,3,0.011662265882630632,42 137 999
+presentation_250,True,Roads on minus off,commute_q1,3,-6.45817805006264,42 137 999
+presentation_250,True,Roads on minus off,commute_q5,3,-11.825063043199817,42 137 999
+core_1000,False,Zoning on minus off,exclusion_q1,5,0.0,42 137 999 2026 8675309
+core_1000,False,Zoning on minus off,exclusion_q5,5,0.0,42 137 999 2026 8675309
+core_1000,False,Zoning on minus off,sorting,5,-0.0038044964126863734,42 137 999 2026 8675309
+core_1000,False,Zoning on minus off,commute_q1,5,2.30426998014646,42 137 999 2026 8675309
+core_1000,False,Zoning on minus off,commute_q5,5,2.2284986617136995,42 137 999 2026 8675309
+core_1000,False,H20 minus H5,exclusion_q1,5,0.33340632614670473,42 137 999 2026 8675309
+core_1000,False,H20 minus H5,exclusion_q5,5,0.334583275398591,42 137 999 2026 8675309
+core_1000,False,H20 minus H5,sorting,5,0.006829107786875909,42 137 999 2026 8675309
+core_1000,False,H20 minus H5,commute_q1,5,-7.174747408276861,42 137 999 2026 8675309
+core_1000,False,H20 minus H5,commute_q5,5,-7.231492988086597,42 137 999 2026 8675309
+core_1000,False,Roads on minus off,exclusion_q1,5,0.0,42 137 999 2026 8675309
+core_1000,False,Roads on minus off,exclusion_q5,5,0.0,42 137 999 2026 8675309
+core_1000,False,Roads on minus off,sorting,5,5.330134463399222e-05,42 137 999 2026 8675309
+core_1000,False,Roads on minus off,commute_q1,5,-24.954210805496174,42 137 999 2026 8675309
+core_1000,False,Roads on minus off,commute_q5,5,-24.94513231261273,42 137 999 2026 8675309
+core_1000,True,Zoning on minus off,exclusion_q1,5,-0.002066408275944723,42 137 999 2026 8675309
+core_1000,True,Zoning on minus off,exclusion_q5,5,0.0025399551589416897,42 137 999 2026 8675309
+core_1000,True,Zoning on minus off,sorting,5,0.04613332039490187,42 137 999 2026 8675309
+core_1000,True,Zoning on minus off,commute_q1,5,-0.06972882469659894,42 137 999 2026 8675309
+core_1000,True,Zoning on minus off,commute_q5,5,-2.0219223506528925,42 137 999 2026 8675309
+core_1000,True,H20 minus H5,exclusion_q1,5,-0.004942309199187077,42 137 999 2026 8675309
+core_1000,True,H20 minus H5,exclusion_q5,5,0.0035743545160282766,42 137 999 2026 8675309
+core_1000,True,H20 minus H5,sorting,5,0.04707720324085629,42 137 999 2026 8675309
+core_1000,True,H20 minus H5,commute_q1,5,-0.5332844444918841,42 137 999 2026 8675309
+core_1000,True,H20 minus H5,commute_q5,5,-1.008138743618278,42 137 999 2026 8675309
+core_1000,True,Roads on minus off,exclusion_q1,5,-0.00022865994979414105,42 137 999 2026 8675309
+core_1000,True,Roads on minus off,exclusion_q5,5,0.0002408637803732074,42 137 999 2026 8675309
+core_1000,True,Roads on minus off,sorting,5,-0.010478150771103251,42 137 999 2026 8675309
+core_1000,True,Roads on minus off,commute_q1,5,-21.04925426707615,42 137 999 2026 8675309
+core_1000,True,Roads on minus off,commute_q5,5,-22.3398145182798,42 137 999 2026 8675309
